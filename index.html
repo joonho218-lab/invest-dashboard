@@ -318,6 +318,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       </div>
       <div class="field"><label for="weighting">나머지 비중 배분</label>
         <select id="weighting">
+          <option value="channel">30·35·20·10·5 (채널 방식)</option>
           <option value="prob">도달 횟수에 비례</option>
           <option value="equal">균등</option>
           <option value="pyramid">깊을수록 크게</option>
@@ -439,7 +440,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
   <section class="panel cyc">
     <details id="cycDetails">
       <summary id="cycSummary">과거 하락 사이클 기록</summary>
-      <p class="note">사이클 = 종가가 52주 최고가보다 최소 낙폭 이상 떨어진 날 시작해, 그 최고가를 다시 넘거나 52주 신고가(종가)를 새로 쓴 날 끝납니다. 낙폭은 시작 시점의 52주 최고가 기준이고, '회복'은 이 종료일을 뜻합니다.</p>
+      <p class="note">사이클 = 종가가 52주 최고가보다 최소 낙폭 이상 떨어진 날 시작해, 그 최고가를 다시 넘은 날 끝납니다(완료). 낙폭은 시작 시점의 52주 최고가 기준이고, '회복'은 이 종료일을 뜻합니다. 상장 첫해는 그때까지의 최고가를 기준으로 합니다.</p>
       <div class="tablewrap"><table><thead><tr><th>#</th><th>고점일</th><th>고점</th><th>저점일</th><th>최대 낙폭</th><th>하락 기간</th><th>회복일</th><th>고점→회복</th></tr></thead><tbody id="cycBody"></tbody></table></div>
     </details>
   </section>
@@ -471,7 +472,7 @@ const STORE_KEY = "bunhal-planner-v1";
 /* ---------- state ---------- */
 const state = {
   name: "", series: null, isExample: false,
-  start: 0.30, levelMode: "stat", weighting: "prob", minDepth: 0.05, fromYear: null, budget: null,
+  start: 0.30, levelMode: "stat", weighting: "channel", minDepth: 0.05, fromYear: null, budget: null,
   fixed: [10, 20, 30, 40, 50],
   priceCcy: "USD", budgetCcy: "KRW", fx: null, fractional: false, source: "",
   sellBasis: "filled",
@@ -629,21 +630,28 @@ function analyze(series, opt) {
     hi[i] = dq[0];
   }
   const startIdx = (() => {
-    let s = WIN - 1;
+    let s = 0; // 상장 첫날부터: 52주가 안 된 구간은 그때까지의 최고가 기준
     if (opt.fromYear) { const k = dates.findIndex(d => +d.slice(0, 4) >= opt.fromYear); if (k > s) s = k; }
     return s;
   })();
-  const cycles = []; let cur = null;
-  for (let i = startIdx; i < n; i++) {
-    if (!cur) {
-      const h = c[hi[i]];
-      if (c[i] <= h * (1 - opt.minDepth)) cur = { pk: hi[i], peak: h, tr: i, low: c[i], hits: [] };
-    } else {
-      if (c[i] < cur.low) { cur.low = c[i]; cur.tr = i; }
-      // ends when price regains the starting high, or sets a fresh 52-week closing high
-      if (c[i] >= cur.peak || hi[i] === i) { cur.rec = i; cycles.push(cur); cur = null; }
+  // 사이클: 52주 최고가보다 최소 낙폭 이상 떨어진 날 시작 → 그 고점을 다시 넘은 날 '완료'
+  // (고점을 오래 못 넘는 종목은 완료 사이클이 너무 적어지므로, 그때만 '52주 신고가 경신'도 완료로 본다)
+  const detect = (newHighEnds) => {
+    const out = []; let cur = null;
+    for (let i = startIdx; i < n; i++) {
+      if (!cur) {
+        const h = c[hi[i]];
+        if (c[i] <= h * (1 - opt.minDepth)) cur = { pk: hi[i], peak: h, tr: i, low: c[i] };
+      } else {
+        if (c[i] < cur.low) { cur.low = c[i]; cur.tr = i; }
+        if (c[i] >= cur.peak || (newHighEnds && hi[i] === i)) { cur.rec = i; out.push(cur); cur = null; }
+      }
     }
-  }
+    return { out, cur };
+  };
+  let det = detect(false), endRule = "peak";
+  if (det.out.length < 10) { const alt = detect(true); if (alt.out.length > det.out.length) { det = alt; endRule = "newhigh"; } }
+  const cycles = det.out; let cur = det.cur;
   for (const cy of cycles) cy.depth = cy.low / cy.peak - 1;
   const N = cycles.length;
   const last = n - 1, price = c[last], hiIdx = hi[last], high = c[hiIdx];
@@ -660,7 +668,7 @@ function analyze(series, opt) {
     if (N < 10) { mode = "fixed"; levelNote = `완료된 사이클이 ${N}번뿐이라 통계 대신 고정 단계를 썼습니다.`; }
     else {
       const ps = [0.5, 0.25, 0.125, 0.0625];
-      levels = ps.map(p => mags[Math.max(0, Math.ceil(p * N) - 1)]); levels.push(mags[0]);
+      levels = ps.map(p => mags[Math.max(0, Math.floor(p * N) - 1)]); levels.push(mags[0]);
       for (let k = 1; k < levels.length; k++) if (levels[k] <= levels[k - 1] + 0.005) { mode = "fixed"; levelNote = "과거 사이클 낙폭이 몰려 있어 단계가 겹치므로 고정 단계를 썼습니다."; break; }
     }
   }
@@ -671,7 +679,7 @@ function analyze(series, opt) {
     const reachedCy = cycles.filter(cy => -cy.depth >= L - 1e-12);
     // time from first touch of the level to recovery, per cycle (calendar days)
     const recDays = reachedCy.map(cy => {
-      let j = cy.pk; while (j < cy.rec && c[j] > cy.peak * (1 - L)) j++;
+      let j = cy.pk; while (j < cy.rec && c[j] / cy.peak - 1 > -L + 1e-9) j++;
       return (Date.parse(dates[cy.rec]) - Date.parse(dates[j])) / 864e5;
     }).sort((a, b) => a - b);
     const med = recDays.length ? (recDays.length % 2 ? recDays[(recDays.length - 1) / 2] : (recDays[recDays.length / 2 - 1] + recDays[recDays.length / 2]) / 2) : null;
@@ -683,7 +691,8 @@ function analyze(series, opt) {
   const s = opt.start, R = 1 - s;
   const rest = stages.slice(1);
   let raw;
-  if (opt.weighting === "equal") raw = rest.map(() => 1);
+  if (opt.weighting === "channel") raw = [35, 20, 10, 5].slice(0, rest.length);
+  else if (opt.weighting === "equal") raw = rest.map(() => 1);
   else if (opt.weighting === "pyramid") raw = rest.map((_, i) => i + 1);
   else { raw = rest.map(st => st.count); if (raw.reduce((a, b) => a + b, 0) === 0) raw = rest.map(() => 1); }
   const sumRaw = raw.reduce((a, b) => a + b, 0);
@@ -698,7 +707,7 @@ function analyze(series, opt) {
 
   const deeperThanNow = cycles.filter(cy => cy.depth <= dd).length;
   return {
-    dates, c, hi, cycles, N, price, high, hiDate: dates[hiIdx], dd, ytdHigh, ddYtd, asof: dates[last],
+    endRule, dates, c, hi, cycles, N, price, high, hiDate: dates[hiIdx], dd, ytdHigh, ddYtd, asof: dates[last],
     startDate: dates[startIdx], years, stages, fullAvg, mode, levelNote, deeperThanNow,
     ongoing: cur ? { depth: cur.low / cur.peak - 1, peak: cur.peak, peakDate: dates[cur.pk], cur: price / cur.peak - 1 } : null,
   };
@@ -905,7 +914,11 @@ function buildLadder(r, model, sp) {
     sp.rows.forEach(x => L.push({ code: `s${x.k}`, price: x.price, kind: "sell", label: `${x.k}차 매도`, q: x.q, done: x.executed, note: `평단 대비 ${fmtPct(x.ret, true)}`, due: !x.executed && hasPos && r.price >= x.price && x.ret >= 0, warn: x.ret < 0 }));
     if (sp.trail) L.push({ code: "trail", price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
   }
-  model.buyRows.forEach(b => L.push({ code: `b${b.st.k}`, price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price }));
+  // 한 번 사면 10거래일 뒤부터 다음 단계
+  const lastBuy = model.trades.filter(t => t.type === "buy").reduce((a, t) => t.date > a ? t.date : a, "");
+  let waitTd = 0;
+  if (lastBuy) { const k = r.dates.findIndex(d => d > lastBuy); const passed = k < 0 ? 0 : r.dates.length - k; waitTd = Math.max(0, 10 - passed); }
+  model.buyRows.forEach(b => L.push({ code: `b${b.st.k}`, wait: !b.done && r.price <= b.st.price && waitTd > 0 ? waitTd : 0, price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price && !(waitTd > 0) }));
   L.sort((a, b) => b.price - a.price);
   return L;
 }
@@ -927,6 +940,7 @@ function renderLog(r, model, sp) {
   const row = (x) => {
     const status = x.done ? `<span class="pos">완료 · ${x.done.date}</span>`
       : x.due ? `<b class="${x.kind === "buy" ? "neg" : "pos"}">${x.kind === "buy" ? "지금 매수할 차례" : x.kind === "trail" ? "정리할 차례" : "지금 매도할 차례"}</b>`
+      : x.wait ? `<span class="muted">가격 도달 · 직전 매수 후 ${x.wait}거래일 더 기다리기</span>`
       : x.kind === "sell" && !hasPos ? '<span class="muted">보유분 없음</span>'
       : x.warn ? '<span class="neg">평단 이하 · 건너뛰기</span>' : '<span class="muted">대기 · 지정가 걸어두기</span>';
     const qtxt = x.q == null ? '<span class="muted">투자금 입력 필요</span>' : x.q === 0 && !x.done ? '<span class="warncell">0주</span>' : fmtQty(x.q);
@@ -1000,14 +1014,16 @@ function render() {
   const levelLine = r.mode === "stat"
     ? `단계는 <strong>52주 최고가 대비 낙폭</strong>으로 잡았고, 표본은 <strong>완료된 하락 사이클 ${r.N}번</strong>입니다 — ${r.startDate.slice(0, 4)}~${r.asof.slice(0, 4)} ${r.years.toFixed(1)}년 · 연평균 ${(r.N / r.years).toFixed(1)}회. 1~4단계는 과거 사이클의 절반·4분의 1·8분의 1·16분의 1이 도달한 깊이, 5단계는 가장 깊었던 하락입니다.`
     : `단계는 <strong>52주 최고가 대비 고정 낙폭</strong>(${r.stages.map(s => Math.round(s.L * 100) + "%").join(" · ")})으로 잡았고, 과거 사례는 ${r.startDate.slice(0, 4)}~${r.asof.slice(0, 4)} ${r.years.toFixed(1)}년 동안 완료된 하락 사이클 ${r.N}번에서 셌습니다.`;
-  const wLine = state.weighting === "prob" ? "나머지 비중은 <strong>그 깊이까지 실제로 내려간 사이클 수</strong>에 비례해 나눴습니다."
+  const wLine = state.weighting === "channel" ? `비중은 채널 계획과 같은 <strong>${r.stages.map(s => Math.round(s.w * 100)).join(" · ")}%</strong>로 나눴습니다. 한 번 사면 <strong>10거래일 뒤부터</strong> 다음 단계를 삽니다.`
+    : state.weighting === "prob" ? "나머지 비중은 <strong>그 깊이까지 실제로 내려간 사이클 수</strong>에 비례해 나눴습니다."
     : state.weighting === "equal" ? "나머지 비중은 2~5단계에 <strong>균등</strong>하게 나눴습니다." : "나머지 비중은 <strong>깊은 단계일수록 크게</strong> 나눴습니다.";
   const nowLine = r.N ? `지금 낙폭 ${fmtPct(r.dd, true)}보다 더 깊이 내려간 사이클은 과거 ${r.N}번 중 <strong>${r.deeperThanNow}번</strong>(${(r.deeperThanNow / r.N * 100).toFixed(0)}%)이었습니다.` : "";
   $("rule").innerHTML = `
     <p><strong>${state.start >= 0.3 ? "기본" : "보수적"} 계획 — 1단계 ${startPct}%부터 시작해 더 내려갈 때 나눠 삽니다.</strong></p>
     <p>${levelLine} 진행 중인 하락은 표본에서 뺐습니다.</p>
     <p>${wLine} ${nowLine}</p>
-    ${r.levelNote ? `<p class="warn">${esc(r.levelNote)}</p>` : ""}`;
+    ${r.levelNote ? `<p class="warn">${esc(r.levelNote)}</p>` : ""}
+    ${r.endRule === "newhigh" ? `<p class="muted">이 종목은 전고점을 다시 넘은 하락이 적어서, 52주 신고가를 새로 쓴 날도 사이클이 끝난 것으로 셌습니다.</p>` : ""}`;
   const alloc = allocate(r.stages);
   const showAmt = !!(alloc && alloc.rows); $("amtH").hidden = !showAmt; $("qtyH").hidden = !showAmt;
   const pricePerShareB = toBudgetCcy(r.price);
