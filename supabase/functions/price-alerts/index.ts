@@ -25,13 +25,45 @@ async function tg(method: string, body: Record<string, unknown> = {}) {
   if (!j.ok) throw new Error(j.description || "telegram_error");
   return j.result;
 }
+// 텔레그램 '체결' 버튼 → 매매 기록에 추가하고 보유 현황에 반영
+async function handleCallback(cq: any) {
+  const chat = cq.message?.chat?.id; const data: string = cq.data || "";
+  const ans = (text: string) => tg("answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: false }).catch(() => {});
+  const [tag, sym, key, priceS, qtyS] = data.split("|");
+  if (tag !== "f" || !sym || !key) return ans("");
+  const { data: acc } = await db.from("planner_accounts").select("id").eq("tg_chat_id", chat).maybeSingle();
+  if (!acc) return ans("연결된 계정을 찾지 못했어요.");
+  const { data: row } = await db.from("planner_tickers").select("trades,levels,plan").eq("account_id", acc.id).eq("symbol", sym).maybeSingle();
+  if (!row) return ans("이 종목 계획을 찾지 못했어요.");
+  const trades: any[] = Array.isArray(row.trades) ? row.trades : [];
+  const nS = Array.isArray(row.plan?.sellLv) ? row.plan.sellLv.length : 3;
+  const stage = key === "trail" ? `s${nS + 1}` : key;
+  const type = stage.startsWith("b") ? "buy" : "sell";
+  if (trades.some((t) => t.stage === stage && !t.imported)) return ans("이미 기록된 단계예요.");
+  const price = Number(priceS); let qty = Number(qtyS);
+  if (!(price > 0) || !(qty > 0)) return ans("가격·수량을 읽지 못했어요. 사이트에서 기록해 주세요.");
+  if (type === "sell") {
+    const held = trades.reduce((a, t) => a + (t.type === "buy" ? Number(t.qty) : -Number(t.qty)), 0);
+    qty = Math.min(qty, Math.round(held * 10000) / 10000);
+    if (!(qty > 0)) return ans("팔 수 있는 보유 수량이 없어요.");
+  }
+  const date = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  trades.push({ id: Date.now(), type, stage, date, price, qty, via: "telegram" });
+  const items = (Array.isArray(row.levels?.items) ? row.levels.items : []).filter((x: any) => x.key !== key);
+  await db.from("planner_tickers").update({ trades, levels: { ...(row.levels || {}), items }, updated_at: new Date().toISOString() }).eq("account_id", acc.id).eq("symbol", sym);
+  await ans(`✅ 기록했어요 · ${type === "buy" ? "매수" : "매도"} ${qty}주 @ ${price}`);
+  const kb = cq.message?.reply_markup?.inline_keyboard || [];
+  const nk = kb.map((r: any[]) => r.map((b) => b.callback_data === data ? { text: `✔️ 기록됨 · ${String(b.text).replace(/^✅\s*/, "")}`, callback_data: "x" } : b));
+  await tg("editMessageReplyMarkup", { chat_id: chat, message_id: cq.message?.message_id, reply_markup: { inline_keyboard: nk } }).catch(() => {});
+}
 async function processUpdates() {
   const { data: off } = await db.from("app_secrets").select("value").eq("name", "tg_offset").single();
   const offset = Number(off?.value || 0);
-  const updates = await tg("getUpdates", { offset, timeout: 0, allowed_updates: ["message"] }) as Array<any>;
+  const updates = await tg("getUpdates", { offset, timeout: 0, allowed_updates: ["message", "callback_query"] }) as Array<any>;
   let next = offset;
   for (const u of updates) {
     next = Math.max(next, u.update_id + 1);
+    if (u.callback_query) { try { await handleCallback(u.callback_query); } catch (_) { /* ignore */ } continue; }
     const text: string = u.message?.text || "", chat = u.message?.chat?.id;
     const m = text.match(/^\/start\s+([A-Za-z0-9]{8,64})/);
     if (m && chat) {
@@ -136,17 +168,18 @@ Deno.serve(async (req) => {
   if (!sec || req.headers.get("x-cron-secret") !== sec.value) return json({ error: "forbidden" }, 403);
   let body: any = {}; try { body = await req.json(); } catch { /* empty */ }
   if (typeof body?.probe === "string") { try { return json({ probe: body.probe, ...(await lastClose(body.probe)) }); } catch (e) { return json({ probe: body.probe, error: (e as Error).message }, 502); } }
-  const mode = body.mode === "live" ? "live" : body.mode === "warm" ? "warm" : "close";
+  const mode = body.mode === "live" ? "live" : body.mode === "warm" ? "warm" : body.mode === "updates" ? "updates" : "close";
   const market: string | null = body.market === "US" || body.market === "KR" ? body.market : null;
   const dry = !!body.dry;
   const out: any = { mode, market, dry, prices: {}, sent: [], errors: [] };
   if (mode === "warm") { for (const m of market ? [market] : ["US", "KR"]) out[m] = (await refreshMarket(m, [], out)).length; return json(out); }
   try { if (TOKEN) await processUpdates(); } catch (e) { out.errors.push(`updates: ${(e as Error).message}`); }
+  if (mode === "updates") return json(out);
 
   const { data: accounts } = await db.from("planner_accounts").select("id,tg_chat_id,site_url,report,report_extra").not("tg_chat_id", "is", null);
   for (const acc of accounts || []) {
     const { data: tickers } = await db.from("planner_tickers").select("symbol,name,levels").eq("account_id", acc.id).eq("watch", true);
-    const blocks: string[] = []; const logRows: any[] = [];
+    const blocks: string[] = []; const logRows: any[] = []; const buttons: any[] = [];
     for (const t of tickers || []) {
       if (market && marketOf(t.symbol) !== market) continue;
       const items: any[] = Array.isArray(t.levels?.items) ? t.levels.items : [];
@@ -166,6 +199,10 @@ Deno.serve(async (req) => {
         if (p0 && Math.abs(Number(p0.level_price) / h.price - 1) < 0.005 && Date.now() - Date.parse(p0.sent_at) < 7 * 864e5) continue;
         const icon = h.kind === "buy" ? "🔴 매수 차례" : h.kind === "trail" ? "🟢 추세 정리" : "🟢 매도 차례";
         lines.push(` ${icon}: ${h.label} ${fmtP(h.price)}${h.q ? ` → ${fmtQ(h.q)}주` : ""}`);
+        if (h.q > 0) {
+          const cbd = `f|${t.symbol}|${h.key}|${Math.round(h.price * 10000) / 10000}|${Math.round(h.q * 10000) / 10000}`;
+          if (cbd.length <= 64) buttons.push([{ text: `✅ ${String(t.name || t.symbol).replace(/\s*\([^)]*\)$/, "").slice(0, 14)} ${h.label} 체결`, callback_data: cbd }]);
+        }
         logRows.push({ account_id: acc.id, symbol: t.symbol, level_key: h.key, level_price: h.price, close_price: px.price });
       }
       if (lines.length) {
@@ -178,10 +215,10 @@ Deno.serve(async (req) => {
     }
     if (blocks.length) {
       const head = mode === "live" ? "⚡ 장중 분할매수 알림 (실시간 · 수 분 늦을 수 있음)" : "📌 분할매수 알림 (장 마감)";
-      const text = `${head}\n\n${blocks.join("\n\n")}\n\n실제로 사고팔았으면 사이트 '진행 상황'에 기록해 주세요. 기록하면 다음 단계 수량이 다시 계산됩니다.`;
+      const text = `${head}\n\n${blocks.join("\n\n")}\n\n주문이 체결됐으면 아래 ✅ 버튼을 누르세요. 매매 기록과 보유 현황에 바로 반영되고 다음 단계 수량이 다시 계산됩니다. (가격·수량이 다르면 사이트 '진행 상황'에서 고칠 수 있어요)`;
       out.sent.push({ account: acc.id, kind: mode, text });
       if (!dry) {
-        try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, disable_web_page_preview: true }); await db.from("planner_alert_log").insert(logRows); }
+        try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, disable_web_page_preview: true, ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) }); await db.from("planner_alert_log").insert(logRows); }
         catch (e) { out.errors.push(`send: ${(e as Error).message}`); }
       }
     }

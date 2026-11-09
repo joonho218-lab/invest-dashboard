@@ -28,13 +28,45 @@ async function tg(method: string, body: Record<string, unknown> = {}) {
   return j.result;
 }
 // 봇에게 온 '/start <연결코드>' 메시지를 읽어 계정과 텔레그램 채팅을 잇는다 (웹훅 없이 getUpdates 사용)
+// 텔레그램 '체결' 버튼 → 매매 기록에 추가하고 보유 현황에 반영
+async function handleCallback(cq: any) {
+  const chat = cq.message?.chat?.id; const data: string = cq.data || "";
+  const ans = (text: string) => tg("answerCallbackQuery", { callback_query_id: cq.id, text, show_alert: false }).catch(() => {});
+  const [tag, sym, key, priceS, qtyS] = data.split("|");
+  if (tag !== "f" || !sym || !key) return ans("");
+  const { data: acc } = await db.from("planner_accounts").select("id").eq("tg_chat_id", chat).maybeSingle();
+  if (!acc) return ans("연결된 계정을 찾지 못했어요.");
+  const { data: row } = await db.from("planner_tickers").select("trades,levels,plan").eq("account_id", acc.id).eq("symbol", sym).maybeSingle();
+  if (!row) return ans("이 종목 계획을 찾지 못했어요.");
+  const trades: any[] = Array.isArray(row.trades) ? row.trades : [];
+  const nS = Array.isArray(row.plan?.sellLv) ? row.plan.sellLv.length : 3;
+  const stage = key === "trail" ? `s${nS + 1}` : key;
+  const type = stage.startsWith("b") ? "buy" : "sell";
+  if (trades.some((t) => t.stage === stage && !t.imported)) return ans("이미 기록된 단계예요.");
+  const price = Number(priceS); let qty = Number(qtyS);
+  if (!(price > 0) || !(qty > 0)) return ans("가격·수량을 읽지 못했어요. 사이트에서 기록해 주세요.");
+  if (type === "sell") {
+    const held = trades.reduce((a, t) => a + (t.type === "buy" ? Number(t.qty) : -Number(t.qty)), 0);
+    qty = Math.min(qty, Math.round(held * 10000) / 10000);
+    if (!(qty > 0)) return ans("팔 수 있는 보유 수량이 없어요.");
+  }
+  const date = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  trades.push({ id: Date.now(), type, stage, date, price, qty, via: "telegram" });
+  const items = (Array.isArray(row.levels?.items) ? row.levels.items : []).filter((x: any) => x.key !== key);
+  await db.from("planner_tickers").update({ trades, levels: { ...(row.levels || {}), items }, updated_at: new Date().toISOString() }).eq("account_id", acc.id).eq("symbol", sym);
+  await ans(`✅ 기록했어요 · ${type === "buy" ? "매수" : "매도"} ${qty}주 @ ${price}`);
+  const kb = cq.message?.reply_markup?.inline_keyboard || [];
+  const nk = kb.map((r: any[]) => r.map((b) => b.callback_data === data ? { text: `✔️ 기록됨 · ${String(b.text).replace(/^✅\s*/, "")}`, callback_data: "x" } : b));
+  await tg("editMessageReplyMarkup", { chat_id: chat, message_id: cq.message?.message_id, reply_markup: { inline_keyboard: nk } }).catch(() => {});
+}
 async function processUpdates() {
   const { data: off } = await db.from("app_secrets").select("value").eq("name", "tg_offset").single();
   const offset = Number(off?.value || 0);
-  const updates = await tg("getUpdates", { offset, timeout: 0, allowed_updates: ["message"] }) as Array<any>;
+  const updates = await tg("getUpdates", { offset, timeout: 0, allowed_updates: ["message", "callback_query"] }) as Array<any>;
   let next = offset;
   for (const u of updates) {
     next = Math.max(next, u.update_id + 1);
+    if (u.callback_query) { try { await handleCallback(u.callback_query); } catch (_) { /* ignore */ } continue; }
     const text: string = u.message?.text || "", chat = u.message?.chat?.id;
     if (!chat) continue;
     const m = text.match(/^\/start\s+([A-Za-z0-9]{8,64})/);
@@ -93,8 +125,13 @@ Deno.serve(async (req) => {
           updated_at: t.updated_at && !isNaN(Date.parse(t.updated_at)) ? t.updated_at : new Date().toISOString(),
           ...(t.levels ? { levels: t.levels } : {}),
         }));
-        if (rows.length) { const { error } = await db.from("planner_tickers").upsert(rows, { onConflict: "account_id,symbol" }); if (error) return json({ error: error.message }, 500); }
-        return json({ ok: true, saved: rows.length });
+        // 서버 쪽이 더 최신(예: 텔레그램 '체결' 버튼으로 기록됨)이면 덮어쓰지 않고 알려준다 → 사이트가 다시 받아감
+        const { data: cur } = await db.from("planner_tickers").select("symbol,updated_at").eq("account_id", acc.id).in("symbol", rows.map((r: any) => r.symbol));
+        const srv: Record<string, number> = {}; (cur || []).forEach((r: any) => srv[r.symbol] = Date.parse(r.updated_at));
+        const stale = rows.filter((r: any) => srv[r.symbol] && srv[r.symbol] > Date.parse(r.updated_at) + 1000).map((r: any) => r.symbol);
+        const fresh = rows.filter((r: any) => !stale.includes(r.symbol));
+        if (fresh.length) { const { error } = await db.from("planner_tickers").upsert(fresh, { onConflict: "account_id,symbol" }); if (error) return json({ error: error.message }, 500); }
+        return json({ ok: true, saved: fresh.length, stale });
       }
       case "levels": { // 가격별 할 일만 갱신 (계획·기록은 건드리지 않음)
         const list = Array.isArray(body.tickers) ? body.tickers.slice(0, 100) : [];

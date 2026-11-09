@@ -222,6 +222,13 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 #holdMask[aria-pressed="true"] { border-color: var(--ink); }
 .btn.tog { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
 .btn.tog.on { border-color: var(--up); color: var(--up); }
+.btn.fill { padding: 3px 9px; font-size: 12px; white-space: nowrap; border-color: currentColor; font-weight: 600; }
+.btn.fill.b { color: var(--down); } .btn.fill.s { color: var(--up); }
+.ptag { display: inline-block; font-size: 12px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.ptag.on { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.ptag.off { border: 1px solid var(--line); color: var(--muted); font-weight: 500; }
+.plancell { display: grid; gap: 4px; justify-items: start; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 50; max-width: min(92vw, 520px); background: var(--ink, #111); color: var(--bg, #fff); padding: 10px 14px; border-radius: 10px; font-size: 14px; box-shadow: 0 6px 24px rgba(0,0,0,.2); }
 #holdSum .v { font-size: 20px; }
 .heldh { font-size: 14px; font-weight: 600; margin: 10px 0 2px; }
 .alert.held { grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1fr) minmax(0, 2fr) auto; }
@@ -283,7 +290,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <button class="btn" id="refreshAlerts" type="button">최신 가격으로 다시 확인</button>
     </div>
     <div id="alertsList" class="alerts"></div>
-    <p class="note" style="margin:0">매수 계획에서 '이 계획으로 진행하기'를 누른 종목만 여기에 올라오고 텔레그램 알림을 받습니다. 사이트를 열 때마다 최신 가격으로 다시 계산해요. 종목을 누르면 진행 상황으로 이동합니다.</p>
+    <p class="note" style="margin:0">매수·매도 계획을 따라가는 종목입니다. '이 계획으로 진행하기'를 누른 종목만 여기에 올라오고 텔레그램 알림을 받아요. 차례가 온 단계의 주문이 체결되면 <b>✅ 체결</b>(사이트) 또는 텔레그램 알림의 <b>✅ 버튼</b>을 누르세요. 매매 기록에 들어가고 아래 <b>내 보유 현황</b>도 자동으로 바뀝니다.</p>
   </section>
 
   <section class="panel" id="holdPanel" aria-labelledby="holdH" hidden>
@@ -304,11 +311,11 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <div class="totals" id="holdSum"></div>
     <div class="tablewrap">
       <table class="holdt" aria-label="보유 종목">
-        <thead><tr><th>종목</th><th>수량</th><th>평단</th><th>현재가</th><th>평가금액</th><th>손익</th><th style="text-align:left">52주 고점 대비 <span class="muted" style="font-weight:400">(눈금 = 매수 1~5단계)</span></th><th></th></tr></thead>
+        <thead><tr><th>종목</th><th>수량</th><th>평단</th><th>현재가</th><th>평가금액</th><th>손익</th><th style="text-align:left">52주 고점 대비 <span class="muted" style="font-weight:400">(눈금 = 매수 1~5단계)</span></th><th style="text-align:left">계획</th></tr></thead>
         <tbody id="holdBody"></tbody>
       </table>
     </div>
-    <p class="note" style="margin:0">미국 종목 금액은 현재 환율로 원화 환산했습니다. 막대는 52주 최고가에서 얼마나 내려왔는지이고, 세로 눈금은 이 종목의 과거 하락 기준 매수 단계(1~5단계) 위치예요. 빨간 막대는 1단계 이상 내려온 종목입니다. '알림 켜기'를 누르면 '진행 중인 계획'에 올라가 텔레그램 알림을 받아요.</p>
+    <p class="note" style="margin:0">미국 종목 금액은 현재 환율로 원화 환산했습니다. 막대는 52주 최고가에서 얼마나 내려왔는지이고, 세로 눈금은 이 종목의 과거 하락 기준 매수 단계(1~5단계) 위치예요. 빨간 막대는 1단계 이상 내려온 종목입니다.<br><span class="ptag on">📌 계획 진행 중</span> 매수·매도 계획을 따라가며 알림을 받는 종목 · <span class="ptag off">보유만</span> 실제 보유분만 있고 계획은 없는 종목. 계획 단계가 체결되면 수량·평단·손익이 여기에 자동으로 반영돼요.</p>
     </div>
   </section>
 
@@ -831,7 +838,9 @@ function buildModel(r) {
   const doneB = new Map(), doneS = new Map();
   trades.forEach(t => { if (t.stage && t.stage[0] === "b") doneB.set(+t.stage.slice(1), t); if (t.stage && t.stage[0] === "s") doneS.set(+t.stage.slice(1), t); });
   const totalP = state.budget > 0 ? toPriceCcy(state.budget) : null;
-  const remCash = totalP == null ? null : Math.max(0, totalP - pos.bought);
+  // 투자금 = 이 계획에 새로 넣을 현금. '보유 불러오기'로 넣은 기존 보유분은 빼고 계산한다
+  const planBought = trades.filter(t => t.type === "buy" && !t.imported).reduce((a, t) => a + t.qty * t.price, 0);
+  const remCash = totalP == null ? null : Math.max(0, totalP - planBought);
   const undone = r.stages.filter(st => !doneB.has(st.k)); const wsum = undone.reduce((a, s) => a + s.w, 0);
   let carry = 0;
   const buyRows = r.stages.map(st => {
@@ -1010,7 +1019,7 @@ function renderLog(r, model, sp) {
     return `<tr class="${x.due ? "due" : ""} ${x.done ? "isdone" : ""}">
       <td class="n">${fmtP(x.price)}</td><td class="n ${x.price < r.price ? "neg" : "pos"}">${fmtPct(x.price / r.price - 1, true)}</td>
       <td><span class="act ${x.kind}">${x.label}</span> <span class="muted" style="font-size:12px">${x.note}</span></td>
-      <td class="n">${qtxt}</td><td class="n">${amt}</td><td style="text-align:left">${status}</td></tr>`;
+      <td class="n">${qtxt}</td><td class="n">${amt}</td><td style="text-align:left">${status}${x.due && x.q > 0 ? ` <button type="button" class="btn fill ${x.kind === "buy" ? "b" : "s"}" data-fill="${x.code}" title="계획 가격·수량으로 매매 기록에 넣고 보유 현황에 반영">✅ 체결 기록</button>` : ""}</td></tr>`;
   };
   const above = L.filter(x => x.price > r.price), belowL = L.filter(x => x.price <= r.price);
   $("ladder").innerHTML = above.map(row).join("") +
@@ -1026,7 +1035,7 @@ function renderLog(r, model, sp) {
   $("todo").innerHTML = `<p><strong>지금 할 일</strong></p><ul>${lines.join("")}</ul>`;
   // trades table
   $("tradeBody").innerHTML = model.trades.length ? model.trades.slice().reverse().map(t => `
-    <tr><td>${t.date}</td><td class="${t.type === "buy" ? "neg" : "pos"}">${t.type === "buy" ? "매수" : "매도"}</td><td>${stageName(t.stage)}</td>
+    <tr><td>${t.date}</td><td class="${t.type === "buy" ? "neg" : "pos"}">${t.type === "buy" ? "매수" : "매도"}</td><td>${stageName(t.stage)}${t.via === "telegram" ? ' <span class="muted" style="font-size:11px">· 텔레그램</span>' : t.imported ? ' <span class="muted" style="font-size:11px">· 보유 불러오기</span>' : ""}</td>
     <td class="n">${fmtP(t.price)}</td><td class="n">${fmtQty(t.qty)}</td><td class="n">${fmtMoneyP(t.price * t.qty, true)}</td>
     <td><button class="btn del" type="button" data-id="${t.id}">삭제</button></td></tr>`).join("")
     : `<tr><td colspan="7" class="muted" style="text-align:left">기록이 없습니다.</td></tr>`;
@@ -1377,6 +1386,44 @@ $("tradeBody").addEventListener("click", (e) => {
   if (!b.classList.contains("confirm")) { b.classList.add("confirm"); b.textContent = "정말 삭제"; setTimeout(() => { b.classList.remove("confirm"); b.textContent = "삭제"; }, 3000); return; }
   setTrades(getTrades().filter(t => String(t.id) !== b.dataset.id)); render();
 });
+// 차례가 온 단계를 계획 가격·수량 그대로 '체결'로 기록 → 매매 기록·보유 현황에 반영 (어느 종목이든)
+const todayStr = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+function recordFill(key, x, nowPrice) {
+  const s = loadStore(); s.trades = s.trades || {}; s.plans = s.plans || {};
+  const plan = s.plans[key]; if (!plan) return { err: "계획을 찾지 못했어요." };
+  const nS = ((plan.settings && plan.settings.sellLv) || state.sellLv || []).length || 3;
+  const stage = x.code === "trail" ? `s${nS + 1}` : x.code;
+  const type = x.kind === "buy" ? "buy" : "sell";
+  const list = (s.trades[key] || []).slice();
+  if (list.some(t => t.stage === stage && !t.imported)) return { err: "이미 기록된 단계예요." };
+  const price = Math.round((x.kind === "trail" && nowPrice ? nowPrice : x.price) * 10000) / 10000;
+  let qty = Number(x.q);
+  if (type === "sell") qty = Math.min(qty, position(sortTrades(list.slice())).qty);
+  if (!(price > 0) || !(qty > 0)) return { err: "기록할 수량이 없어요." };
+  list.push({ id: Date.now(), type, stage, date: todayStr(), price, qty, via: "site" });
+  s.trades[key] = list;
+  plan.watch = true; plan.since = plan.since || todayStr(); plan.t = Date.now(); plan.sig = null;
+  if (plan.settings) plan.settings.sellBasis = "log";
+  saveStore(s); queuePlanPush(key);
+  return { type, qty, price };
+}
+let toastT = null;
+function toast(msg) {
+  let el = document.getElementById("toast");
+  if (!el) { el = document.createElement("div"); el.id = "toast"; el.className = "toast"; el.setAttribute("role", "status"); document.body.appendChild(el); }
+  el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 4500);
+}
+const fillMsg = (nm, r) => `✅ ${nm} ${r.type === "buy" ? "매수" : "매도"} ${fmtQtyRaw(r.qty)}주 @ ${fmtP(r.price)} 기록 · 보유 현황에 반영했어요. 실제 체결가가 다르면 '진행 상황'에서 고칠 수 있어요.`;
+$("ladder").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-fill]"); if (!b || !lastResult) return;
+  const x = lastLadder.find(v => v.code === b.dataset.fill); if (!x) return;
+  savePlan();
+  const res = recordFill(tradeKey(), x, lastResult.price);
+  if (res.err) { toast(res.err); return; }
+  if (state.sellBasis !== "log") setBasis("log");
+  render(); savePlan(true); updateCurrentAlert(lastResult);
+  toast(fillMsg(String(state.name || "").replace(/\s*\([^)]*\)$/, ""), res));
+});
 $("copyOrders").addEventListener("click", () => {
   const sym = tradeKey().replace(/\.(KS|KQ)$/, "");
   const lines = lastLadder.filter(x => !x.done && !x.warn && x.q > 0 && x.kind !== "trail")
@@ -1600,7 +1647,7 @@ function heldPlans() {
 }
 function holdLine(key, a) {
   const pos = position(sortTrades((((loadStore().trades) || {})[key] || []).slice()));
-  if (!(pos.qty > 0)) return "";
+  if (!(pos.qty > 0)) return `<span class="hold muted">아직 매수 전 · 보유 없음</span>`;
   const pnl = a && a.price && pos.avg ? a.price / pos.avg - 1 : null;
   return `<span class="hold">보유 ${fmtQtyRaw(pos.qty)}주 · 평단 ${fmtP(pos.avg)}${pnl != null ? ` · <b class="${pnl < 0 ? "neg" : "pos"}">${fmtPct(pnl, true)}</b>` : ""}</span>`;
 }
@@ -1616,7 +1663,7 @@ function renderAlerts() {
     if (!a) return `<div class="alert">${head}<span class="muted">확인 중…</span>${x}</div>`;
     if (a.error) return `<div class="alert">${head}<span class="neg">${a.error}</span>${x}</div>`;
     dueTotal += a.sum.due.length;
-    const chips = a.sum.due.length ? a.sum.due.map(d => `<span class="chip-due ${d.kind === "buy" ? "b" : "s"}">${d.kind === "buy" ? "매수" : "매도"} 차례 · ${d.label.replace(/ 매수| 매도/, "")} ${fmtP(d.price)}${d.q ? ` · ${fmtQtyRaw(d.q)}주` : ""}</span>`).join("")
+    const chips = a.sum.due.length ? a.sum.due.map(d => `<span class="chip-due ${d.kind === "buy" ? "b" : "s"}">${d.kind === "buy" ? "매수" : "매도"} 차례 · ${d.label.replace(/ 매수| 매도/, "")} ${fmtP(d.price)}${d.q ? ` · ${fmtQtyRaw(d.q)}주` : ""}</span>${d.q > 0 ? `<button type="button" class="btn fill ${d.kind === "buy" ? "b" : "s"}" data-fillk="${sym}" data-code="${esc(d.code)}" title="체결됐으면 눌러서 매매 기록·보유 현황에 반영">✅ 체결</button>` : ""}`).join("")
       : `<span class="chip-wait">대기</span>`;
     const next = [a.sum.nextBuy ? `다음 매수 ${a.sum.nextBuy.label.replace(" 매수", "")} ${fmtP(a.sum.nextBuy.price)} (${fmtPct(a.sum.nextBuy.price / a.price - 1, true)})` : "",
       a.sum.nextSell ? `다음 매도 ${a.sum.nextSell.label.replace(" 매도", "")} ${fmtP(a.sum.nextSell.price)} (${fmtPct(a.sum.nextSell.price / a.price - 1, true)})` : ""].filter(Boolean).join(" · ");
@@ -1658,6 +1705,19 @@ function openWatched(key) {
 $("alertsList").addEventListener("click", (e) => {
   const w = e.target.closest("[data-watch]");
   if (w) { const k = w.dataset.watch; const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = true; s.plans[k].since = s.plans[k].since || new Date().toISOString().slice(0, 10); s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); } renderAlerts(); return; }
+  const f = e.target.closest("[data-fillk]");
+  if (f) {
+    const k = f.dataset.fillk; const a = alertCache[k]; const d = a && a.sum && a.sum.due.find(v => v.code === f.dataset.code); if (!d) return;
+    if (k === tradeKey() && state.series && !state.isExample) savePlan();
+    const res = recordFill(k, d, a.price);
+    if (res.err) { toast(res.err); return; }
+    const p = (loadStore().plans || {})[k];
+    toast(fillMsg(String(p.name).replace(/\s*\([^)]*\)$/, ""), res));
+    if (k === tradeKey() && state.series && !state.isExample) { if (state.sellBasis !== "log") setBasis("log"); render(); savePlan(true); updateCurrentAlert(lastResult); }
+    f.disabled = true;
+    computeAlert(k, p).then(v => { alertCache[k] = v; renderAlerts(); }).catch(() => renderAlerts());
+    return;
+  }
   const u = e.target.closest("[data-unwatch]");
   if (u) { const k = u.dataset.unwatch; const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = false; s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); } renderAlerts(); return; }
   const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
@@ -1718,7 +1778,22 @@ const pushTimers = {}; const levelSig = {};
 function queuePlanPush(key) {
   if (!syncCode()) return;
   clearTimeout(pushTimers[key]);
-  pushTimers[key] = setTimeout(async () => { const row = rowFor(key); if (!row) return; try { await syncCall("push", { tickers: [row] }); } catch (e) { setSyncNote(`동기화 실패: ${e.message}`); } }, 1200);
+  pushTimers[key] = setTimeout(async () => {
+    const row = rowFor(key); if (!row) return;
+    try {
+      const j = await syncCall("push", { tickers: [row] });
+      if (j && Array.isArray(j.stale) && j.stale.includes(key)) await mergeStale(key, row.trades);
+    } catch (e) { setSyncNote(`동기화 실패: ${e.message}`); }
+  }, 1200);
+}
+// 서버 쪽이 더 최신(예: 텔레그램 ✅로 체결 기록)이면 서버 기록을 받고, 이 기기에서만 추가한 기록은 덧붙여 다시 올린다
+async function mergeStale(key, localTrades) {
+  await pullSync();
+  const s = loadStore(); const srv = (s.trades || {})[key] || [];
+  const ids = new Set(srv.map(t => String(t.id)));
+  const extra = (localTrades || []).filter(t => !ids.has(String(t.id)) && !(t.stage && srv.some(x => x.stage === t.stage && !x.imported)));
+  if (extra.length && s.plans[key]) { s.trades[key] = [...srv, ...extra]; s.plans[key].t = Date.now(); s.plans[key].sig = null; saveStore(s); queuePlanPush(key); }
+  afterPull();
 }
 function queueLevels(key, levels) {
   levelsCache[key] = levels;
@@ -1735,7 +1810,9 @@ async function pullSync() {
     remote.add(t.symbol);
     const local = s.plans[t.symbol]; const rt = Date.parse(t.updated_at) || 0;
     if (!local || (local.t || 0) < rt - 1000) {
-      s.plans[t.symbol] = { name: t.name, ccy: t.ccy, settings: t.plan, watch: t.watch, t: rt, sig: planSig(t.name, t.ccy, t.plan, t.watch, t.trades || []) };
+      const had = new Set(((s.trades || {})[t.symbol] || []).map(x => String(x.id)));
+      (t.trades || []).forEach(x => { if (x.via === "telegram" && !had.has(String(x.id))) pulledFills.push({ name: t.name, ...x }); });
+      s.plans[t.symbol] = { name: t.name, ccy: t.ccy, settings: t.plan, watch: t.watch, since: local && local.since || null, t: rt, sig: planSig(t.name, t.ccy, t.plan, t.watch, t.trades || []) };
       s.trades[t.symbol] = t.trades || []; changed = true;
     }
   }
@@ -1815,7 +1892,24 @@ $("tgBody").addEventListener("submit", async (e) => {
   try { await syncCall("pull", {}, code); const s = loadStore(); s.sync = { code }; saveStore(s); const ch = await pullSync(); setSyncNote("연결됐습니다. 기록을 맞췄습니다."); renderTg(); if (ch) afterPull(); else refreshAlerts(); }
   catch (err) { setSyncNote(err.code === "unknown_code" ? "코드를 찾지 못했습니다. 다시 확인해 주세요." : `문제가 생겼습니다: ${err.message}`); }
 });
-function afterPull() { if (state.series && !state.isExample) { restorePlan(); render(); } refreshAlerts(); }
+let pulledFills = [];
+function afterPull() {
+  if (state.series && !state.isExample) { restorePlan(); render(); } refreshAlerts();
+  if (pulledFills.length) {
+    const f = pulledFills; pulledFills = [];
+    toast(f.length === 1 ? `📲 텔레그램에서 ${String(f[0].name).replace(/\s*\([^)]*\)$/, "")} ${f[0].type === "buy" ? "매수" : "매도"} ${fmtQtyRaw(f[0].qty)}주 체결을 받아 보유 현황에 반영했어요.` : `📲 텔레그램에서 체결 기록 ${f.length}건을 받아 보유 현황에 반영했어요.`);
+  }
+}
+// 텔레그램 ✅로 기록한 체결이 사이트에도 저절로 들어오도록: 화면으로 돌아올 때 + 열어둔 동안 90초마다 확인
+let pullAt = Date.now(), pulling = false;
+async function autoPull(force) {
+  if (!syncCode() || pulling || document.visibilityState !== "visible") return;
+  if (!force && Date.now() - pullAt < 60e3) return;
+  pulling = true; pullAt = Date.now();
+  try { if (await pullSync()) afterPull(); } catch (e) { /* 다음에 다시 */ } finally { pulling = false; }
+}
+document.addEventListener("visibilitychange", () => autoPull());
+setInterval(() => autoPull(), 90e3);
 async function bootSync() {
   if (!syncCode()) { renderTg(); return; }
   try { const ch = await pullSync(); if (ch) afterPull(); } catch (e) { setSyncNote(`동기화하지 못했습니다: ${e.message}`); }
@@ -2065,8 +2159,16 @@ function renderHoldings() {
       <td class="n">${won(r.value)}</td>
       <td class="n ${r.pr == null ? "" : r.pr < 0 ? "neg" : "pos"}">${r.pnl != null ? `${sgnWon(r.pnl)}<br><span style="font-size:12px">${fmtPct(r.pr, true)}</span>` : r.pr != null ? fmtPct(r.pr, true) : "—"}</td>
       <td style="text-align:left">${ddCell}</td>
-      <td><button type="button" class="btn tog ${r.watch ? "on" : ""}" data-tog="${sym}">${r.watch ? "알림 켜짐" : "알림 켜기"}</button></td>
+      <td style="text-align:left">${planCell(r, sym)}</td>
     </tr>`;
+  };
+  const planCell = (r, sym) => {
+    if (!r.watch) return `<div class="plancell"><span class="ptag off">보유만</span><button type="button" class="btn tog" data-plan="${sym}" title="이 종목의 매수·매도 계획을 세우고 진행하기">계획 세우기</button></div>`;
+    const ts = ((loadStore().trades || {})[r.key] || []).filter(t => !t.imported && t.stage);
+    const nb = new Set(ts.filter(t => t.stage[0] === "b").map(t => t.stage)).size, ns = new Set(ts.filter(t => t.stage[0] === "s").map(t => t.stage)).size;
+    const nst = (r.a && r.a.levels && r.a.levels.length) || 5;
+    const due = r.a && r.a.sum ? r.a.sum.due.length : 0;
+    return `<div class="plancell"><span class="ptag on">📌 계획 진행 중</span><span class="muted" style="font-size:11px">매수 ${nb}/${nst}단계${ns ? ` · 매도 ${ns}회` : ""}${due ? ` · <b class="neg">할 일 ${due}건</b>` : ""}</span><button type="button" class="btn tog on" data-open="${sym}">진행 상황 보기</button></div>`;
   };
   const group = (title, rs, s) => rs.length ? `<tr class="grp"><td colspan="4"><b>${title}</b> <span class="muted">${rs.length}종목</span></td><td class="n"><b>${won(s.v)}</b></td><td class="n ${s.p < 0 ? "neg" : "pos"}"><b>${sgnWon(s.p)}</b>${s.pr != null ? `<br><span style="font-size:12px">${fmtPct(s.pr, true)}</span>` : ""}</td><td colspan="2"></td></tr>` + rs.map(rowHtml).join("") : "";
   $("holdBody").innerHTML = group("🇺🇸 미국", rows.filter(r => !r.kr), us) + group("🇰🇷 한국", rows.filter(r => r.kr), kr);
@@ -2075,13 +2177,14 @@ $("holdMask").addEventListener("click", () => { holdMask = !holdMask; try { loca
 $("holdFold").addEventListener("click", () => { holdFold = !holdFold; try { localStorage.setItem("bunhal-holdfold", holdFold ? "1" : "0"); } catch (e) {} renderHoldings(); });
 $("holdSort").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; holdSort = b.dataset.v; try { localStorage.setItem("bunhal-holdsort", holdSort); } catch (er) {} renderHoldings(); });
 $("holdBody").addEventListener("click", (e) => {
-  const t = e.target.closest("[data-tog]");
-  if (t) {
-    const k = t.dataset.tog; const s = loadStore(); const p = s.plans && s.plans[k]; if (!p) return;
-    const on = !watchedPlans().some(([x]) => x === k);
-    p.watch = on; p.since = on ? (p.since || new Date().toISOString().slice(0, 10)) : null; p.t = Date.now(); p.sig = null; saveStore(s); queuePlanPush(k);
-    renderAlerts(); renderHoldings(); return;
+  const t = e.target.closest("[data-plan]");
+  if (t) { // 보유만 있는 종목 → 매수 계획 화면으로 이동해서 투자금·단계를 정하고 '진행하기'
+    const k = t.dataset.plan;
+    const go = () => { showTab("buy"); document.querySelector(".tabs").scrollIntoView({ behavior: "smooth", block: "start" }); toast("투자금(추가로 넣을 현금)을 정하고 '📌 이 계획으로 진행하기'를 누르면 계획 진행 중으로 바뀌어요."); };
+    if (location.protocol.startsWith("http") && /^[\^A-Z0-9.\-=]{1,20}$/.test(k)) { fetchTicker(k).then(go); return; }
+    openWatched(k); go(); return;
   }
+  const o = e.target.closest("[data-open]"); if (o) { openWatched(o.dataset.open); return; }
   const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
 });
 
