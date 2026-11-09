@@ -160,6 +160,18 @@ details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 .field input#budget { width: 160px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; padding-top: 6px; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.favbox { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
+.favgrp { display: grid; grid-template-columns: 64px 1fr; gap: 8px; align-items: start; }
+.favgrp .lbl { padding-top: 6px; }
+.favchips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.fav { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); }
+.fav.on { border-color: var(--ink); background: var(--mark-row); }
+.fav .favgo { border: 0; background: none; padding: 5px 4px 5px 11px; cursor: pointer; font-size: 13px; color: var(--ink); white-space: nowrap; }
+.fav .favgo:last-child { padding-right: 11px; }
+.fav .favgo .muted { font-family: var(--font-num); font-size: 11px; }
+.fav .favx { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 9px 0 4px; font-size: 15px; }
+.fav:hover { border-color: var(--muted); }
+@media (max-width: 560px) { .favgrp { grid-template-columns: 1fr; gap: 4px; } .favgrp .lbl { padding-top: 0; } }
 .badge.sellb { background: var(--accent); color: var(--paper); }
 .sell-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
 .lvbox { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
@@ -247,6 +259,19 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <button class="btn primary" id="fetchBtn" type="submit">가격 불러오기</button>
     </form>
     <p class="note" style="margin:0">미국은 티커(QQQ, ^GSPC), 한국은 6자리 종목코드(005930)를 넣으세요. 전체 기간 일봉 수정종가를 자동으로 가져옵니다.</p>
+    <div class="favbox">
+      <div class="row" style="justify-content:space-between">
+        <div class="seg" id="favSeg" role="group" aria-label="즐겨찾기 분류">
+          <button type="button" data-v="us" aria-pressed="true">미국</button>
+          <button type="button" data-v="kr" aria-pressed="false">한국</button>
+          <button type="button" data-v="lev" aria-pressed="false">레버리지</button>
+          <button type="button" data-v="mine" aria-pressed="false">내 즐겨찾기</button>
+        </div>
+        <div class="row" style="gap:6px"><button class="btn" id="favAdd" type="button" hidden>☆ 추가</button><button class="btn" id="favAddLev" type="button" hidden>레버리지로 추가</button></div>
+      </div>
+      <div id="favList"></div>
+      <p class="note" id="favNote" style="margin:0"></p>
+    </div>
     <div class="row">
       <button class="btn" id="pickFile" type="button">CSV 파일 선택</button>
       <button class="btn" id="togglePaste" type="button">표 붙여넣기</button>
@@ -997,6 +1022,7 @@ function render() {
   renderCycles(r);
   savePlan();
   updateCurrentAlert(r);
+  renderFavs();
 }
 
 function renderCycles(r) {
@@ -1590,6 +1616,63 @@ async function bootSync() {
   try { const ch = await pullSync(); if (ch) afterPull(); } catch (e) { setSyncNote(`동기화하지 못했습니다: ${e.message}`); }
   renderTg();
 }
+
+/* ---------- favorites: what the channel covers most, split US / KR / leverage ---------- */
+const FAVS = {
+  us: [
+    ["지수", [["^GSPC", "S&P500"], ["^IXIC", "나스닥 종합"], ["^SOX", "필라델피아 반도체"]]],
+    ["ETF", [["SPY", "S&P500"], ["QQQ", "나스닥100"], ["SOXX", "반도체"], ["SCHD", "배당"], ["IEF", "미국 중기채"], ["GLD", "금"], ["ARKK", "ARK 혁신"]]],
+    ["개별주", [["NVDA", "엔비디아"], ["MU", "마이크론"], ["AMD", "AMD"], ["TSM", "TSMC"], ["ASML", "ASML"], ["MSFT", "마이크로소프트"], ["AMZN", "아마존"], ["META", "메타"], ["TSLA", "테슬라"], ["PLTR", "팔란티어"], ["HOOD", "로빈후드"], ["CRWV", "코어위브"], ["O", "리얼티인컴"], ["LEN", "레나"], ["BRK-B", "버크셔 해서웨이"]]],
+  ],
+  kr: [
+    ["지수", [["^KS11", "코스피"], ["^KQ11", "코스닥"]]],
+    ["ETF", [["360750", "TIGER 미국S&P500"], ["133690", "TIGER 미국나스닥100"], ["305080", "TIGER 미국채10년선물"], ["411060", "ACE KRX금현물"]]],
+    ["개별주", [["005930", "삼성전자"], ["000660", "SK하이닉스"]]],
+  ],
+  lev: [
+    ["미국 레버리지", [["QLD", "나스닥100 2배"], ["TQQQ", "나스닥100 3배"], ["SOXL", "반도체 3배"]]],
+  ],
+};
+const favNote = {
+  us: "채널에서 시황·개별주 이슈·리포트로 자주 다룬 미국 지수, ETF, 종목입니다.",
+  kr: "채널에서 다룬 국내 지수와 종목, 포트폴리오 예시에 나온 국내 상장 ETF입니다.",
+  lev: "채널에서 전략과 낙폭을 따로 분석한 레버리지 ETF입니다. 레버리지는 매일 배율을 다시 맞추는 구조라 횡보·하락이 길면 기초지수보다 더 깎일 수 있어요. QLD는 2006년, TQQQ는 2010년부터 데이터가 있어 닷컴버블 같은 큰 하락이 과거 통계에 빠져 있다는 점도 함께 보세요. 국내 레버리지는 채널에서 따로 다루지 않아 '내 즐겨찾기'에 직접 추가하면 됩니다.",
+  mine: "지금 보고 있는 종목을 '★ 추가'로 넣으면 여기에 모입니다.",
+};
+let favTab = (() => { try { return localStorage.getItem("bunhal-favtab") || "us"; } catch (e) { return "us"; } })();
+function myFavs() { return loadStore().favs || []; }
+function renderFavs() {
+  document.querySelectorAll("#favSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === favTab)));
+  const cur = tradeKey().replace(/\.(KS|KQ)$/, "");
+  const chip = (sym, label, mine) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b> <span class="muted">${esc(sym)}</span></button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
+  let html = "";
+  if (favTab === "mine") {
+    const list = myFavs();
+    html = list.length ? `<div class="favgrp"><div class="favchips">${list.map(f => chip(f.sym, f.name, true)).join("")}</div></div>` : "";
+  } else {
+    html = FAVS[favTab].map(([g, items]) => `<div class="favgrp"><span class="lbl">${g}</span><div class="favchips">${items.map(([s, n]) => chip(s, n, false)).join("")}</div></div>`).join("");
+    if (favTab === "lev") { const mineLev = myFavs().filter(f => f.lev); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true)).join("")}</div></div>`; }
+  }
+  $("favList").innerHTML = html;
+  $("favNote").textContent = favNote[favTab];
+  const canAdd = state.series && !state.isExample;
+  $("favAdd").hidden = !canAdd; $("favAddLev").hidden = !canAdd;
+  if (canAdd) { const inMine = myFavs().some(f => f.sym === cur); $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} 내 즐겨찾기에 추가`; $("favAdd").disabled = inMine; $("favAddLev").hidden = inMine || !canAdd; }
+}
+$("favSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; favTab = b.dataset.v; try { localStorage.setItem("bunhal-favtab", favTab); } catch (er) {} renderFavs(); });
+$("favList").addEventListener("click", (e) => {
+  const d = e.target.closest("[data-del]");
+  if (d) { const s = loadStore(); s.favs = (s.favs || []).filter(f => f.sym !== d.dataset.del); saveStore(s); renderFavs(); return; }
+  const g = e.target.closest(".favgo"); if (!g) return;
+  $("ticker").value = g.dataset.sym; updYahoo(); fetchTicker(g.dataset.sym);
+});
+function addFav(lev) {
+  const sym = tradeKey().replace(/\.(KS|KQ)$/, ""); const s = loadStore(); s.favs = s.favs || [];
+  if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, name: String(state.name).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
+  saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs();
+}
+$("favAdd").addEventListener("click", () => addFav(false));
+$("favAddLev").addEventListener("click", () => addFav(true));
 
 /* ---------- boot ---------- */
 renderRecent();
