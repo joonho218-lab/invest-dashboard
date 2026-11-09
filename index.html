@@ -172,7 +172,7 @@ details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; padding-top: 6px; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; }
 .favbox { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
-.favgrp { display: grid; grid-template-columns: 64px 1fr; gap: 8px; align-items: start; }
+.favgrp { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: start; }
 .favgrp .lbl { padding-top: 6px; }
 .favchips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .fav { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); }
@@ -285,7 +285,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
           <button type="button" data-v="lev" aria-pressed="false">레버리지</button>
           <button type="button" data-v="mine" aria-pressed="false">내 즐겨찾기</button>
         </div>
-        <div class="row" style="gap:6px"><button class="btn" id="favAdd" type="button" hidden>☆ 추가</button><button class="btn" id="favAddLev" type="button" hidden>레버리지로 추가</button></div>
+        <div class="row" style="gap:6px"><button class="btn" id="favAdd" type="button" hidden>☆ 추가</button></div>
       </div>
       <div id="favList"></div>
       <p class="note" id="favNote" style="margin:0"></p>
@@ -1795,14 +1795,17 @@ function renderFavs() {
     html = list.length ? `<div class="favgrp"><div class="favchips">${list.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>` : "";
   } else {
     html = FAVS[favTab].map(([g, items]) => `<div class="favgrp"><span class="lbl">${g}</span><div class="favchips">${items.map(([s, n]) => chip(s, n, false)).join("")}</div></div>`).join("");
-    if (favTab === "lev") { const mineLev = myFavs().filter(f => f.lev); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>`; }
+    if (favTab === "lev") { const mineLev = myFavs().filter(f => isLeverage(f.name, f.ysym || f.sym)); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>`; }
   }
   $("favList").innerHTML = html;
   const asof = Object.values(marketDD).filter(x => !x.market || x.market === (favTab === "kr" ? "KR" : "US")).map(x => x.asof).filter(Boolean).sort().pop();
   $("favNote").textContent = favNote[favTab] + (asof ? ` 숫자는 52주 고점 대비 하락폭(${asof} 종가)이고, 빨간 표시는 과거 기준 매수 단계에 들어온 종목이에요.` : "");
   const canAdd = state.series && !state.isExample;
-  $("favAdd").hidden = !canAdd; $("favAddLev").hidden = !canAdd;
-  if (canAdd) { const inMine = myFavs().some(f => f.sym === cur); $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} 내 즐겨찾기에 추가`; $("favAdd").disabled = inMine; $("favAddLev").hidden = inMine || !canAdd; }
+  $("favAdd").hidden = !canAdd;
+  if (canAdd) {
+    const inMine = myFavs().some(f => f.sym === cur); const lev = isLeverage(state.name, tradeKey());
+    $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} ${lev ? "레버리지 즐겨찾기에" : "내 즐겨찾기에"} 추가`; $("favAdd").disabled = inMine;
+  }
 }
 $("favSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; favTab = b.dataset.v; try { localStorage.setItem("bunhal-favtab", favTab); } catch (er) {} renderFavs(); });
 $("favList").addEventListener("click", (e) => {
@@ -1811,13 +1814,20 @@ $("favList").addEventListener("click", (e) => {
   const g = e.target.closest(".favgo"); if (!g) return;
   $("ticker").value = g.dataset.sym; updYahoo(); fetchTicker(g.dataset.sym);
 });
+// 레버리지·인버스 상품인지: 이름의 배율 표시나 잘 알려진 티커로 판단
+const LEV_TICKERS = new Set(["QLD", "TQQQ", "SOXL", "SOXS", "SQQQ", "SSO", "UPRO", "SPXL", "SPXU", "SDS", "TECL", "FNGU", "FNGD", "NVDL", "NVDX", "TSLL", "TSLT", "USD", "ROM", "LABU", "TNA", "UDOW", "DDM", "BITX", "CONL", "MSTU", "AAPU", "AMZU", "GGLL", "METU", "MSFU", "PLTU", "AVL", "NVDU", "TMF", "UBT", "UGL", "AGQ", "BOIL", "UCO", "YINN", "FAS", "DFEN", "HIBL", "WEBL", "BULZ", "DPST", "NAIL", "CURE", "UTSL", "RETL", "PILL"]);
+function isLeverage(name, sym) {
+  const s = String(sym || "").replace(/\.(KS|KQ)$/, "").toUpperCase();
+  if (LEV_TICKERS.has(s)) return true;
+  return /레버리지|인버스|곱버스|[23]\s?배|\b[23]x\b|ultra(pro)?\b|leveraged|daily .*(bull|bear) [23]x|\bbull [23]x|\bbear [23]x|2x long|3x long|-1x|-2x|-3x/i.test(String(name || ""));
+}
 function addFav(lev) {
   const sym = tradeKey().replace(/\.(KS|KQ)$/, ""); const s = loadStore(); s.favs = s.favs || [];
   if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, ysym: tradeKey(), name: String(state.name).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
   saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs(); pushPrefs();
 }
-$("favAdd").addEventListener("click", () => addFav(false));
-$("favAddLev").addEventListener("click", () => addFav(true));
+$("favAdd").addEventListener("click", () => addFav(isLeverage(state.name, tradeKey())));
+
 
 /* ---------- boot ---------- */
 renderRecent();
