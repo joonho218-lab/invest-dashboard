@@ -35,6 +35,26 @@ export function fromYahoo(quotes) {
   }
   return out;
 }
+// 네이버 자동완성은 이름 '앞부분'만 맞춰서 "금현물"로는 "ACE KRX금현물"이 안 나온다.
+// 그래서 국내 ETF 전체 목록(약 1,200개)을 받아 두고 이름 '중간'까지 찾는다 (6시간 캐시).
+let etfCache = { at: 0, list: [] };
+async function etfList() {
+  if (Date.now() - etfCache.at < 6 * 3600e3 && etfCache.list.length) return etfCache.list;
+  const r = await fetch("https://finance.naver.com/api/sise/etfItemList.nhn?etfType=0&targetColumn=market_sum&sortOrder=desc", { headers: { "User-Agent": UA, Referer: "https://finance.naver.com/sise/etf.naver" } });
+  if (!r.ok) return etfCache.list;
+  const buf = await r.arrayBuffer();
+  let text; try { text = new TextDecoder("euc-kr").decode(buf); } catch { text = new TextDecoder().decode(buf); }
+  const j = JSON.parse(text);
+  const list = ((j.result && j.result.etfItemList) || []).map((e) => ({ code: String(e.itemcode), name: String(e.itemname) })).filter((e) => /^[0-9A-Z]{6}$/.test(e.code));
+  if (list.length) etfCache = { at: Date.now(), list };
+  return etfCache.list;
+}
+export function matchEtfs(list, q, limit = 8) {
+  const norm = (s) => s.replace(/\s+/g, "").toLowerCase();
+  const k = norm(q); if (k.length < 2) return [];
+  return list.filter((e) => norm(e.name).includes(k)).slice(0, limit)
+    .map((e) => ({ symbol: e.code + ".KS", name: e.name, market: "KR", type: "ETF", exchange: "코스피" }));
+}
 async function naver(q) {
   const tries = [q]; if (/\s/.test(q)) tries.push(q.replace(/\s+/g, ""));
   for (const t of tries) {
@@ -54,8 +74,9 @@ async function yahoo(q) {
 export default async function handler(req, res) {
   const q = String((req.query && req.query.q) || new URL(req.url, "http://x").searchParams.get("q") || "").trim().slice(0, 40);
   if (!q) { res.status(400).json({ error: "검색어를 입력하세요." }); return; }
-  const [a, b] = await Promise.all([naver(q).catch(() => []), HANGUL.test(q) ? Promise.resolve([]) : yahoo(q).catch(() => [])]);
-  const first = HANGUL.test(q) ? a : [...b, ...a];
+  const [a, b, etfs] = await Promise.all([naver(q).catch(() => []), HANGUL.test(q) ? Promise.resolve([]) : yahoo(q).catch(() => []), etfList().catch(() => [])]);
+  const e = matchEtfs(etfs, q);
+  const first = HANGUL.test(q) ? [...a, ...e] : [...b, ...a, ...e];
   const seen = new Set(); const items = [];
   for (const it of first) { if (seen.has(it.symbol)) continue; seen.add(it.symbol); items.push(it); if (items.length >= 10) break; }
   res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=604800");

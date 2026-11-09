@@ -209,6 +209,10 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 #ladder td:nth-child(3), tr.nowrow td:last-child, #tradeBody td:nth-child(2), #tradeBody td:nth-child(3) { text-align: left; }
 #posKpis .v[style] { font-size: 16px !important; }
 .alerts { display: grid; gap: 6px; }
+.heldh { font-size: 14px; font-weight: 600; margin: 10px 0 2px; }
+.alert.held { grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1fr) minmax(0, 2fr) auto; }
+.alert .hold { font-size: 12px; }
+.alert .watchon { grid-column: 4; grid-row: 1; padding: 4px 10px; font-size: 12px; }
 .activate { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; font-size: 13px; color: var(--muted); }
 .activate.on { border-style: solid; border-color: var(--up); background: var(--mark-row); color: var(--ink); }
 .ddb { font-family: var(--font-num); font-size: 11px; padding: 1px 6px; border-radius: 999px; margin-left: 4px; background: var(--soft); color: var(--muted); }
@@ -225,7 +229,7 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .chip-due { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: #fff; }
 .chip-due.b { background: var(--down); } .chip-due.s { background: var(--up); }
 .chip-wait { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
-@media (max-width: 640px) { .alert { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } }
+@media (max-width: 640px) { .alert, .alert.held { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } .alert .watchon { grid-column: 2; } }
 .tgwhat { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .startcmd { font-family: var(--font-num); background: var(--soft); padding: 2px 6px; border-radius: 6px; user-select: all; }
@@ -261,7 +265,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
 
   <section class="panel alerts-panel" id="alertsPanel" aria-labelledby="alertsH" hidden>
     <div class="row" style="justify-content:space-between">
-      <h2 id="alertsH">진행 중인 계획 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
+      <h2 id="alertsH">진행 중인 계획 · 보유 종목 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
       <button class="btn" id="refreshAlerts" type="button">최신 가격으로 다시 확인</button>
     </div>
     <div id="alertsList" class="alerts"></div>
@@ -933,7 +937,7 @@ function buildLadder(r, model, sp) {
     if (sp.trail) L.push({ code: "trail", price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
   }
   // 한 번 사면 10거래일 뒤부터 다음 단계
-  const lastBuy = model.trades.filter(t => t.type === "buy").reduce((a, t) => t.date > a ? t.date : a, "");
+  const lastBuy = model.trades.filter(t => t.type === "buy" && !t.imported).reduce((a, t) => t.date > a ? t.date : a, "");
   let waitTd = 0;
   if (lastBuy) { const k = r.dates.findIndex(d => d > lastBuy); const passed = k < 0 ? 0 : r.dates.length - k; waitTd = Math.max(0, 10 - passed); }
   model.buyRows.forEach(b => L.push({ code: `b${b.st.k}`, wait: !b.done && r.price <= b.st.price && waitTd > 0 ? waitTd : 0, price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price && !(waitTd > 0) }));
@@ -1538,16 +1542,28 @@ async function computeAlert(key, plan) {
     try { const res = await fetch(`/api/prices?symbol=${encodeURIComponent(key)}`); if (res.ok) { const j = await res.json(); series = j.dates.map((d, i) => [d, j.close[i]]); ccy = j.currency || ccy; } } catch (e) {}
   }
   if (!series) { const st = (loadStore().sets || {})[plan.name]; if (st) series = st.d.map((d, i) => [d, st.c[i]]); }
-  if (!series || series.length < 260) return { key, error: "가격을 불러오지 못했습니다" };
+  if (!series) return { key, error: "가격을 불러오지 못했습니다" };
+  if (series.length < 260) return { key, error: "상장 1년 미만이라 단계 계산 불가" };
   return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
     const r = analyze(series, state); const alloc = allocate(r.stages); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
     const L = buildLadder(r, model, sp); queueLevels(key, levelsFromLadder(r, L, model.pos.qty > 0));
-    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L) };
+    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg };
   });
 }
+function heldPlans() {
+  const s = loadStore(); const watched = new Set(watchedPlans().map(([k]) => k));
+  return Object.entries(s.plans || {}).filter(([k]) => !watched.has(k) && position(sortTrades(((s.trades || {})[k] || []).slice())).qty > 0)
+    .sort((a, b) => String(a[1].name).localeCompare(String(b[1].name), "ko"));
+}
+function holdLine(key, a) {
+  const pos = position(sortTrades((((loadStore().trades) || {})[key] || []).slice()));
+  if (!(pos.qty > 0)) return "";
+  const pnl = a && a.price && pos.avg ? a.price / pos.avg - 1 : null;
+  return `<span class="hold">보유 ${fmtQtyRaw(pos.qty)}주 · 평단 ${fmtP(pos.avg)}${pnl != null ? ` · <b class="${pnl < 0 ? "neg" : "pos"}">${fmtPct(pnl, true)}</b>` : ""}</span>`;
+}
 function renderAlerts() {
-  const list = watchedPlans(); const box = $("alertsList");
-  $("alertsPanel").hidden = !list.length;
+  const list = watchedPlans(); const box = $("alertsList"); const held = heldPlans();
+  $("alertsPanel").hidden = !list.length && !held.length;
   let dueTotal = 0;
   box.innerHTML = list.map(([key, p]) => {
     const a = alertCache[key];
@@ -1563,8 +1579,16 @@ function renderAlerts() {
       a.sum.nextSell ? `다음 매도 ${a.sum.nextSell.label.replace(" 매도", "")} ${fmtP(a.sum.nextSell.price)} (${fmtPct(a.sum.nextSell.price / a.price - 1, true)})` : ""].filter(Boolean).join(" · ");
     return `<div class="alert ${a.sum.due.length ? "hasdue" : ""}">${head}
       <span class="num">${fmtP(a.price)} <span class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</span> <span class="muted" style="font-size:12px">${a.asof}</span></span>
-      <span class="adue">${chips}</span><span class="muted anext">${next}</span>${x}</div>`;
-  }).join("");
+      <span class="adue">${chips}</span><span class="muted anext">${next}${holdLine(key, a) ? " · " : ""}${holdLine(key, a)}</span>${x}</div>`;
+  }).join("") + (held.length ? `<h3 class="heldh">보유 종목 · 알림 꺼짐 <span class="muted" style="font-weight:400;font-size:12px">${held.length}개 — '알림 켜기'를 누르면 위 '진행 중'으로 올라가 텔레그램 알림을 받아요</span></h3>` +
+    held.map(([key, p]) => {
+      const a = alertCache[key]; const nm = esc(String(p.name).replace(/\s*\([^)]*\)$/, "")), sym = esc(key);
+      const head = `<button type="button" class="alink" data-key="${sym}"><b>${nm}</b>${nm !== sym ? ` <span class="muted">${sym.replace(/\.(KS|KQ)$/, "")}</span>` : ""}</button>`;
+      const z = a && a.sum ? a.sum.due.filter(d => d.kind === "buy").length : 0;
+      const info = !a ? `<span class="muted">확인 중…</span>` : a.error ? `<span class="muted">${a.error}</span>`
+        : `<span class="num">${fmtP(a.price)} <span class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</span>${z ? ` <span class="ddb z">${z}단계 구간</span>` : ""}</span>`;
+      return `<div class="alert held">${head}${info}<span class="adue">${holdLine(key, a)}</span><button type="button" class="btn watchon" data-watch="${sym}">알림 켜기</button></div>`;
+    }).join("") : "");
   document.title = dueTotal ? `(${dueTotal}) 분할매수 플래너` : "분할매수 플래너";
   $("alertsSum").textContent = dueTotal ? `할 일 ${dueTotal}건` : "지금 할 일 없음";
   $("alertsSum").className = dueTotal ? "neg" : "muted";
@@ -1572,7 +1596,7 @@ function renderAlerts() {
 let alertsAt = 0;
 async function refreshAlerts() {
   alertsAt = Date.now();
-  const list = watchedPlans(); renderAlerts();
+  const list = [...watchedPlans(), ...heldPlans()]; renderAlerts();
   for (const [key, p] of list) { // one at a time keeps the shared state swap simple
     try { alertCache[key] = await computeAlert(key, p); } catch (e) { alertCache[key] = { key, error: "계산하지 못했습니다" }; }
     renderAlerts();
@@ -1594,6 +1618,8 @@ function openWatched(key) {
   const st = (loadStore().sets || {})[p.name]; if (st) { setData(p.name, st.d.map((d, i) => [d, st.c[i]]), false, false, { ccy: st.ccy }); go(); }
 }
 $("alertsList").addEventListener("click", (e) => {
+  const w = e.target.closest("[data-watch]");
+  if (w) { const k = w.dataset.watch; const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = true; s.plans[k].since = s.plans[k].since || new Date().toISOString().slice(0, 10); s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); } renderAlerts(); return; }
   const u = e.target.closest("[data-unwatch]");
   if (u) { const k = u.dataset.unwatch; const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = false; s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); } renderAlerts(); return; }
   const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
