@@ -35,8 +35,8 @@ export function parseYahoo(json) {
   };
 }
 
-async function fromYahoo(sym) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=max&interval=1d&events=div%2Csplit&includeAdjustedClose=true`;
+async function fromYahoo(sym, range = "max") {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=1d&events=div%2Csplit&includeAdjustedClose=true`;
   const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
   if (!res.ok) throw new Error(`yahoo ${res.status}`);
   const out = parseYahoo(await res.json());
@@ -59,13 +59,15 @@ async function fromStooq(sym) {
 
 export default async function handler(req, res) {
   const q = (req.query && req.query.symbol) || new URL(req.url, "http://x").searchParams.get("symbol");
+  const rq = (req.query && req.query.range) || "max";
+  const range = ["5d", "1mo", "1y", "max"].includes(rq) ? rq : "max";
   const candidates = normalizeSymbols(q);
   if (!candidates.length) { res.status(400).json({ error: "티커를 확인해 주세요. 예: QQQ, AAPL, 005930" }); return; }
   const errors = [];
   for (const sym of candidates) {
     for (const src of [fromYahoo, fromStooq]) {
       try {
-        const data = await src(sym);
+        const data = await src(sym, range);
         res.setHeader("Cache-Control", "s-maxage=3600, stale-while-revalidate=86400");
         res.status(200).json(data);
         return;
