@@ -209,6 +209,18 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 #ladder td:nth-child(3), tr.nowrow td:last-child, #tradeBody td:nth-child(2), #tradeBody td:nth-child(3) { text-align: left; }
 #posKpis .v[style] { font-size: 16px !important; }
 .alerts { display: grid; gap: 6px; }
+.holdt { min-width: 860px; }
+.holdt td { vertical-align: middle; }
+.holdt .alink { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink); font-size: 14px; text-align: left; }
+.holdt .alink:hover b { text-decoration: underline; }
+.ddcell { display: flex; align-items: center; gap: 8px; }
+.gauge .g-track { fill: var(--soft); }
+.gauge .g-fill { fill: var(--muted); }
+.gauge .g-fill.z { fill: var(--down); }
+.gauge .g-tick { stroke: var(--ink); stroke-width: 1; opacity: .55; }
+.btn.tog { padding: 4px 10px; font-size: 12px; white-space: nowrap; }
+.btn.tog.on { border-color: var(--up); color: var(--up); }
+#holdSum .v { font-size: 20px; }
 .heldh { font-size: 14px; font-weight: 600; margin: 10px 0 2px; }
 .alert.held { grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1fr) minmax(0, 2fr) auto; }
 .alert .hold { font-size: 12px; }
@@ -265,11 +277,30 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
 
   <section class="panel alerts-panel" id="alertsPanel" aria-labelledby="alertsH" hidden>
     <div class="row" style="justify-content:space-between">
-      <h2 id="alertsH">진행 중인 계획 · 보유 종목 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
+      <h2 id="alertsH">진행 중인 계획 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
       <button class="btn" id="refreshAlerts" type="button">최신 가격으로 다시 확인</button>
     </div>
     <div id="alertsList" class="alerts"></div>
     <p class="note" style="margin:0">매수 계획에서 '이 계획으로 진행하기'를 누른 종목만 여기에 올라오고 텔레그램 알림을 받습니다. 사이트를 열 때마다 최신 가격으로 다시 계산해요. 종목을 누르면 진행 상황으로 이동합니다.</p>
+  </section>
+
+  <section class="panel" id="holdPanel" aria-labelledby="holdH" hidden>
+    <div class="row" style="justify-content:space-between">
+      <h2 id="holdH">내 보유 현황</h2>
+      <div class="seg" id="holdSort" role="group" aria-label="정렬">
+        <button type="button" data-v="value" aria-pressed="true">평가금액순</button>
+        <button type="button" data-v="dd" aria-pressed="false">고점 대비 하락순</button>
+        <button type="button" data-v="pnl" aria-pressed="false">수익률순</button>
+      </div>
+    </div>
+    <div class="totals" id="holdSum"></div>
+    <div class="tablewrap">
+      <table class="holdt" aria-label="보유 종목">
+        <thead><tr><th>종목</th><th>수량</th><th>평단</th><th>현재가</th><th>평가금액</th><th>손익</th><th style="text-align:left">52주 고점 대비 <span class="muted" style="font-weight:400">(눈금 = 매수 1~5단계)</span></th><th></th></tr></thead>
+        <tbody id="holdBody"></tbody>
+      </table>
+    </div>
+    <p class="note" style="margin:0">미국 종목 금액은 현재 환율로 원화 환산했습니다. 막대는 52주 최고가에서 얼마나 내려왔는지이고, 세로 눈금은 이 종목의 과거 하락 기준 매수 단계(1~5단계) 위치예요. 빨간 막대는 1단계 이상 내려온 종목입니다. '알림 켜기'를 누르면 '진행 중인 계획'에 올라가 텔레그램 알림을 받아요.</p>
   </section>
 
   <section class="panel" aria-labelledby="tgH">
@@ -1543,11 +1574,14 @@ async function computeAlert(key, plan) {
   }
   if (!series) { const st = (loadStore().sets || {})[plan.name]; if (st) series = st.d.map((d, i) => [d, st.c[i]]); }
   if (!series) return { key, error: "가격을 불러오지 못했습니다" };
-  if (series.length < 260) return { key, error: "상장 1년 미만이라 단계 계산 불가" };
+  if (series.length < 260) { // 상장 1년 미만: 단계는 못 구하지만 상장 후 고점 대비 하락폭은 보여준다
+    const last = series[series.length - 1]; const hi = Math.max(...series.map(x => x[1]));
+    return { key, price: last[1], asof: last[0], dd: last[1] / hi - 1, short: true, levels: [], sum: { due: [], nextBuy: null, nextSell: null } };
+  }
   return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
     const r = analyze(series, state); const alloc = allocate(r.stages); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
     const L = buildLadder(r, model, sp); queueLevels(key, levelsFromLadder(r, L, model.pos.qty > 0));
-    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg };
+    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg, levels: r.stages.map(x => x.L), high: r.high };
   });
 }
 function heldPlans() {
@@ -1563,7 +1597,7 @@ function holdLine(key, a) {
 }
 function renderAlerts() {
   const list = watchedPlans(); const box = $("alertsList"); const held = heldPlans();
-  $("alertsPanel").hidden = !list.length && !held.length;
+  $("alertsPanel").hidden = !list.length;
   let dueTotal = 0;
   box.innerHTML = list.map(([key, p]) => {
     const a = alertCache[key];
@@ -1580,15 +1614,8 @@ function renderAlerts() {
     return `<div class="alert ${a.sum.due.length ? "hasdue" : ""}">${head}
       <span class="num">${fmtP(a.price)} <span class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</span> <span class="muted" style="font-size:12px">${a.asof}</span></span>
       <span class="adue">${chips}</span><span class="muted anext">${next}${holdLine(key, a) ? " · " : ""}${holdLine(key, a)}</span>${x}</div>`;
-  }).join("") + (held.length ? `<h3 class="heldh">보유 종목 · 알림 꺼짐 <span class="muted" style="font-weight:400;font-size:12px">${held.length}개 — '알림 켜기'를 누르면 위 '진행 중'으로 올라가 텔레그램 알림을 받아요</span></h3>` +
-    held.map(([key, p]) => {
-      const a = alertCache[key]; const nm = esc(String(p.name).replace(/\s*\([^)]*\)$/, "")), sym = esc(key);
-      const head = `<button type="button" class="alink" data-key="${sym}"><b>${nm}</b>${nm !== sym ? ` <span class="muted">${sym.replace(/\.(KS|KQ)$/, "")}</span>` : ""}</button>`;
-      const z = a && a.sum ? a.sum.due.filter(d => d.kind === "buy").length : 0;
-      const info = !a ? `<span class="muted">확인 중…</span>` : a.error ? `<span class="muted">${a.error}</span>`
-        : `<span class="num">${fmtP(a.price)} <span class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</span>${z ? ` <span class="ddb z">${z}단계 구간</span>` : ""}</span>`;
-      return `<div class="alert held">${head}${info}<span class="adue">${holdLine(key, a)}</span><button type="button" class="btn watchon" data-watch="${sym}">알림 켜기</button></div>`;
-    }).join("") : "");
+  }).join("");
+  renderHoldings();
   document.title = dueTotal ? `(${dueTotal}) 분할매수 플래너` : "분할매수 플래너";
   $("alertsSum").textContent = dueTotal ? `할 일 ${dueTotal}건` : "지금 할 일 없음";
   $("alertsSum").className = dueTotal ? "neg" : "muted";
@@ -1597,6 +1624,7 @@ let alertsAt = 0;
 async function refreshAlerts() {
   alertsAt = Date.now();
   const list = [...watchedPlans(), ...heldPlans()]; renderAlerts();
+  loadHoldFx();
   for (const [key, p] of list) { // one at a time keeps the shared state swap simple
     try { alertCache[key] = await computeAlert(key, p); } catch (e) { alertCache[key] = { key, error: "계산하지 못했습니다" }; }
     renderAlerts();
@@ -1605,8 +1633,9 @@ async function refreshAlerts() {
 function updateCurrentAlert(r) {
   if (state.isExample) { renderAlerts(); return; }
   const key = tradeKey();
+  if (!watchedPlans().some(([k]) => k === key) && lastModel && lastModel.pos.qty > 0) { alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high }; renderHoldings(); }
   if (watchedPlans().some(([k]) => k === key)) {
-    alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder) };
+    alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high };
     if (lastModel) queueLevels(key, levelsFromLadder(r, lastLadder, lastModel.pos.qty > 0));
   }
   renderAlerts();
@@ -1954,6 +1983,85 @@ async function openLevPick() {
 $("favLev").addEventListener("click", openLevPick);
 
 
+
+/* ---------- my holdings board: value, P&L and drawdown from the 52-week high ---------- */
+let holdFx = null, holdSort = (() => { try { return localStorage.getItem("bunhal-holdsort") || "value"; } catch (e) { return "value"; } })();
+async function loadHoldFx() {
+  if (holdFx || !location.protocol.startsWith("http")) return;
+  try { const j = await (await fetch(`/api/prices?symbol=${encodeURIComponent("KRW=X")}&range=1mo`)).json(); const v = j.close[j.close.length - 1]; if (v > 100) { holdFx = v; renderHoldings(); } } catch (e) {}
+}
+function allHoldings() {
+  const s = loadStore();
+  return Object.entries(s.plans || {}).map(([k, p]) => ({ key: k, p, pos: position(sortTrades(((s.trades || {})[k] || []).slice())) })).filter(h => h.pos.qty > 0);
+}
+function ddGauge(a) {
+  if (!a || a.dd == null) return "";
+  const L = a.levels || []; const d = -a.dd;
+  const max = Math.max(0.3, (L[L.length - 1] || 0) * 1.05, d * 1.1);
+  const W = 150, H = 16, x = v => Math.max(0, Math.min(W, v / max * W));
+  const z = L.filter(v => d >= v - 1e-9).length;
+  return `<svg class="gauge" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="52주 고점 대비 ${(a.dd * 100).toFixed(1)}%${z ? `, ${z}단계 구간` : ""}">
+    <rect class="g-track" x="0" y="5" width="${W}" height="6" rx="3"/>
+    <rect class="g-fill ${z ? "z" : ""}" x="0" y="5" width="${x(d).toFixed(1)}" height="6" rx="3"/>
+    ${L.map((v, i) => `<line class="g-tick" x1="${x(v).toFixed(1)}" x2="${x(v).toFixed(1)}" y1="2" y2="14"><title>${i + 1}단계 −${(v * 100).toFixed(1)}%</title></line>`).join("")}
+  </svg>`;
+}
+function renderHoldings() {
+  const list = allHoldings(); const sec = $("holdPanel");
+  sec.hidden = !list.length; if (!list.length) return;
+  document.querySelectorAll("#holdSort button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === holdSort)));
+  const watched = new Set(watchedPlans().map(([k]) => k));
+  const fx = holdFx || state.fx || null;
+  const rows = list.map(h => {
+    const a = alertCache[h.key]; const usd = (h.p.ccy || (/\.(KS|KQ)$|^\^K/.test(h.key) ? "KRW" : "USD")) === "USD";
+    const toK = v => v == null ? null : usd ? (fx ? v * fx : null) : v;
+    const price = a && a.price != null ? a.price : null;
+    const value = price != null ? toK(price * h.pos.qty) : null;
+    const cost = toK(h.pos.avg * h.pos.qty);
+    const pnl = value != null && cost != null ? value - cost : null;
+    const pr = price != null ? price / h.pos.avg - 1 : null;
+    const z = a && a.levels ? a.levels.filter(v => -a.dd >= v - 1e-9).length : 0;
+    return { ...h, a, usd, price, value, cost, pnl, pr, z, watch: watched.has(h.key) };
+  });
+  const key = { value: r => -(r.value || 0), dd: r => (r.a && r.a.dd != null ? r.a.dd : 1), pnl: r => (r.pr != null ? r.pr : 9) }[holdSort] || (r => 0);
+  rows.sort((a, b) => key(a) - key(b));
+  const won = v => v == null ? "—" : `${Math.round(v).toLocaleString("ko-KR")}원`;
+  const tv = rows.reduce((s, r) => s + (r.value || 0), 0), tc = rows.filter(r => r.value != null).reduce((s, r) => s + (r.cost || 0), 0);
+  const deep = rows.filter(r => r.a && r.a.dd != null).sort((a, b) => a.a.dd - b.a.dd)[0];
+  const inZone = rows.filter(r => r.z > 0).length;
+  $("holdSum").innerHTML = `
+    <div><span class="v">${won(tv)}</span><span class="k">평가금액 · ${rows.length}종목${fx ? ` · 환율 ${Math.round(fx).toLocaleString("ko-KR")}원` : ""}</span></div>
+    <div><span class="v ${tv - tc < 0 ? "neg" : "pos"}">${tc ? `${tv - tc >= 0 ? "+" : ""}${won(tv - tc)}` : "—"}</span><span class="k">평가손익 ${tc ? `(${fmtPct(tv / tc - 1, true)})` : ""}</span></div>
+    <div><span class="v">${inZone}<span style="font-size:14px">종목</span></span><span class="k">고점 대비 1단계 이상 내려온 보유 종목</span></div>
+    <div><span class="v neg">${deep ? fmtPct(deep.a.dd, true) : "—"}</span><span class="k">가장 많이 빠진 종목${deep ? ` · ${esc(String(deep.p.name).replace(/\s*\([^)]*\)$/, ""))}` : ""}</span></div>`;
+  $("holdBody").innerHTML = rows.map(r => {
+    const nm = esc(String(r.p.name).replace(/\s*\([^)]*\)$/, "")), sym = esc(r.key);
+    const a = r.a;
+    const ddCell = !a ? `<span class="muted">확인 중…</span>` : a.error ? `<span class="muted" style="font-size:12px">${esc(a.error)}${a.dd != null ? "" : ""}</span>`
+      : `<div class="ddcell">${ddGauge(a)}<span><b class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</b>${r.z ? ` <span class="ddb z">${r.z}단계</span>` : ""}${a.short ? `<br><span class="muted" style="font-size:11px">상장 후 고점 기준 · 단계 없음</span>` : ""}</span></div>`;
+    return `<tr>
+      <td><button type="button" class="alink" data-key="${sym}"><b>${nm}</b></button><br><span class="muted num" style="font-size:11px">${sym.replace(/\.(KS|KQ)$/, "")}</span></td>
+      <td class="n">${fmtQtyRaw(r.pos.qty)}주</td>
+      <td class="n">${fmtP(r.pos.avg)}</td>
+      <td class="n">${r.price != null ? fmtP(r.price) : "—"}</td>
+      <td class="n">${won(r.value)}</td>
+      <td class="n ${r.pr == null ? "" : r.pr < 0 ? "neg" : "pos"}">${r.pnl != null ? `${r.pnl >= 0 ? "+" : ""}${won(r.pnl)}<br><span style="font-size:12px">${fmtPct(r.pr, true)}</span>` : r.pr != null ? fmtPct(r.pr, true) : "—"}</td>
+      <td style="text-align:left">${ddCell}</td>
+      <td><button type="button" class="btn tog ${r.watch ? "on" : ""}" data-tog="${sym}">${r.watch ? "알림 켜짐" : "알림 켜기"}</button></td>
+    </tr>`;
+  }).join("");
+}
+$("holdSort").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; holdSort = b.dataset.v; try { localStorage.setItem("bunhal-holdsort", holdSort); } catch (er) {} renderHoldings(); });
+$("holdBody").addEventListener("click", (e) => {
+  const t = e.target.closest("[data-tog]");
+  if (t) {
+    const k = t.dataset.tog; const s = loadStore(); const p = s.plans && s.plans[k]; if (!p) return;
+    const on = !watchedPlans().some(([x]) => x === k);
+    p.watch = on; p.since = on ? (p.since || new Date().toISOString().slice(0, 10)) : null; p.t = Date.now(); p.sig = null; saveStore(s); queuePlanPush(k);
+    renderAlerts(); renderHoldings(); return;
+  }
+  const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
+});
 
 /* ---------- boot ---------- */
 renderRecent();
