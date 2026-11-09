@@ -200,7 +200,9 @@ Deno.serve(async (req) => {
         const icon = h.kind === "buy" ? "🔴 매수 차례" : h.kind === "trail" ? "🟢 추세 정리" : "🟢 매도 차례";
         lines.push(` ${icon}: ${h.label} ${fmtP(h.price)}${h.q ? ` → ${fmtQ(h.q)}주` : ""}`);
         if (h.q > 0) {
-          const cbd = `f|${t.symbol}|${h.key}|${Math.round(h.price * 10000) / 10000}|${Math.round(h.q * 10000) / 10000}`;
+          // 이미 지나친 단계는 지금 가격으로 체결된다고 보고 기록 (매수는 더 싸게, 매도는 더 비싸게)
+          const fp = h.kind === "buy" ? Math.min(h.price, px.price) : h.kind === "trail" ? px.price : Math.max(h.price, px.price);
+          const cbd = `f|${t.symbol}|${h.key}|${Math.round(fp * 10000) / 10000}|${Math.round(h.q * 10000) / 10000}`;
           if (cbd.length <= 64) buttons.push([{ text: `✅ ${String(t.name || t.symbol).replace(/\s*\([^)]*\)$/, "").slice(0, 14)} ${h.label} 체결`, callback_data: cbd }]);
         }
         logRows.push({ account_id: acc.id, symbol: t.symbol, level_key: h.key, level_price: h.price, close_price: px.price });

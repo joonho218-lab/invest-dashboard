@@ -800,15 +800,16 @@ function fmtMoneyP(vP, short) { // amount in price currency → budget currency 
   return `${fmtCcy(b, state.budgetCcy)} <span class="muted">(${fmtCcy(vP, state.priceCcy)})</span>`;
 }
 const fmtQty = (q) => q == null ? "—" : (state.fractional ? (Math.round(q * 10000) / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 4 }) : q.toLocaleString("ko-KR")) + "주";
-function allocate(stages) {
+function allocate(stages, now) {
   if (!(state.budget > 0)) return null;
   const totalP = toPriceCcy(state.budget); if (totalP == null) return { needFx: true };
   let carry = 0, cumQ = 0, cumCost = 0; const rows = [];
   stages.forEach(st => {
     const planned = totalP * st.w, target = planned + carry;
-    const q = state.fractional ? Math.floor(target / st.price * 10000) / 10000 : Math.floor(target / st.price);
-    const cost = q * st.price; carry = target - cost; cumQ += q; cumCost += cost;
-    rows.push({ planned, q, cost, avg: cumQ > 0 ? cumCost / cumQ : null });
+    const px = now > 0 && now <= st.price ? now : st.price; // 이미 지난 단계는 지금 가격에 산다
+    const q = state.fractional ? Math.floor(target / px * 10000) / 10000 : Math.floor(target / px);
+    const cost = q * px; carry = target - cost; cumQ += q; cumCost += cost;
+    rows.push({ planned, q, cost, px, atNow: px !== st.price, avg: cumQ > 0 ? cumCost / cumQ : null });
   });
   return { rows, leftover: carry, totalQ: cumQ, totalCost: cumCost, totalP };
 }
@@ -848,8 +849,9 @@ function buildModel(r) {
     if (done) return { st, done, q: done.qty, amt: done.qty * done.price };
     if (remCash == null || !wsum) return { st, q: null, amt: null };
     const target = remCash * st.w / wsum + carry;
-    const q = state.fractional ? Math.floor(target / st.price * 10000) / 10000 : Math.floor(target / st.price);
-    carry = target - q * st.price; return { st, q, amt: q * st.price };
+    const px = r.price <= st.price ? r.price : st.price; // 이미 지난 단계는 지금 가격 기준 수량
+    const q = state.fractional ? Math.floor(target / px * 10000) / 10000 : Math.floor(target / px);
+    carry = target - q * px; return { st, q, amt: q * px, px };
   });
   return { trades, pos, doneB, doneS, remCash, buyRows, leftover: carry };
 }
@@ -989,7 +991,15 @@ function buildLadder(r, model, sp) {
   const lastBuy = model.trades.filter(t => t.type === "buy" && !t.imported).reduce((a, t) => t.date > a ? t.date : a, "");
   let waitTd = 0;
   if (lastBuy) { const k = r.dates.findIndex(d => d > lastBuy); const passed = k < 0 ? 0 : r.dates.length - k; waitTd = Math.max(0, 10 - passed); }
-  model.buyRows.forEach(b => L.push({ code: `b${b.st.k}`, wait: !b.done && r.price <= b.st.price && waitTd > 0 ? waitTd : 0, price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price && !(waitTd > 0) }));
+  // 처음 시작할 때 이미 여러 단계를 지나 있으면: 가장 앞 단계 하나만 지금, 나머지는 그 뒤 10거래일씩
+  let dueTaken = false;
+  model.buyRows.forEach(b => {
+    const reached = !b.done && r.price <= b.st.price;
+    let due = false, wait = 0, queued = false;
+    if (reached) { if (waitTd > 0) wait = waitTd; else if (!dueTaken) { due = true; dueTaken = true; } else { wait = 10; queued = true; } }
+    L.push({ code: `b${b.st.k}`, wait, queued, price: b.st.price, buyPx: reached ? b.px || r.price : b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done,
+      note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%${reached ? ` · 지금가 ${fmtP(r.price)} 기준 수량` : ""}`, due });
+  });
   L.sort((a, b) => b.price - a.price);
   return L;
 }
@@ -1011,11 +1021,12 @@ function renderLog(r, model, sp) {
   const row = (x) => {
     const status = x.done ? `<span class="pos">완료 · ${x.done.date}</span>`
       : x.due ? `<b class="${x.kind === "buy" ? "neg" : "pos"}">${x.kind === "buy" ? "지금 매수할 차례" : x.kind === "trail" ? "정리할 차례" : "지금 매도할 차례"}</b>`
+      : x.queued ? `<span class="muted">가격 도달 · 앞 단계를 산 뒤 10거래일 지나서</span>`
       : x.wait ? `<span class="muted">가격 도달 · 직전 매수 후 ${x.wait}거래일 더 기다리기</span>`
       : x.kind === "sell" && !hasPos ? '<span class="muted">보유분 없음</span>'
       : x.warn ? '<span class="neg">평단 이하 · 건너뛰기</span>' : '<span class="muted">대기 · 지정가 걸어두기</span>';
     const qtxt = x.q == null ? '<span class="muted">투자금 입력 필요</span>' : x.q === 0 && !x.done ? '<span class="warncell">0주</span>' : fmtQty(x.q);
-    const amt = x.q ? fmtMoneyP(x.q * (x.done ? x.done.price : x.price), true) : "";
+    const amt = x.q ? fmtMoneyP(x.q * (x.done ? x.done.price : x.buyPx || x.price), true) : "";
     return `<tr class="${x.due ? "due" : ""} ${x.done ? "isdone" : ""}">
       <td class="n">${fmtP(x.price)}</td><td class="n ${x.price < r.price ? "neg" : "pos"}">${fmtPct(x.price / r.price - 1, true)}</td>
       <td><span class="act ${x.kind}">${x.label}</span> <span class="muted" style="font-size:12px">${x.note}</span></td>
@@ -1029,7 +1040,7 @@ function renderLog(r, model, sp) {
   const due = L.filter(x => x.due);
   const nextBuy = L.filter(x => x.kind === "buy" && !x.done && !x.due).sort((a, b) => b.price - a.price)[0];
   const nextSell = L.filter(x => (x.kind === "sell") && !x.done && !x.due && hasPos && !x.warn).sort((a, b) => a.price - b.price)[0];
-  const lines = due.map(x => `<li><b>${x.label}</b> — ${x.kind === "buy" ? `현재가(${fmtP(r.price)})가 ${fmtP(x.price)} 이하입니다. 계획상 ${x.q == null ? "정한 비중만큼" : fmtQty(x.q)} 살 차례입니다.` : x.kind === "trail" ? `종가가 ${fmtP(x.price)} 아래로 내려왔습니다. 남은 ${fmtQty(x.q)}를 정리할 차례입니다.` : `현재가가 ${fmtP(x.price)}에 도달했습니다. 계획상 ${fmtQty(x.q)} 팔 차례입니다.`}</li>`);
+  const lines = due.map(x => `<li><b>${x.label}</b> — ${x.kind === "buy" ? `현재가(${fmtP(r.price)})가 ${fmtP(x.price)} 이하입니다. 계획상 ${x.q == null ? "정한 비중만큼" : `${fmtQty(x.q)}(약 ${fmtMoneyP(x.q * (x.buyPx || x.price), true)})`} 살 차례입니다.${L.some(v => v.queued) ? ` 이미 지난 더 깊은 단계는 한꺼번에 사지 않고, 이걸 산 뒤 10거래일씩 간격을 두고 차례로 삽니다.` : ""}` : x.kind === "trail" ? `종가가 ${fmtP(x.price)} 아래로 내려왔습니다. 남은 ${fmtQty(x.q)}를 정리할 차례입니다.` : `현재가가 ${fmtP(x.price)}에 도달했습니다. 계획상 ${fmtQty(x.q)} 팔 차례입니다.`}</li>`);
   if (!due.length) lines.push(`<li>지금은 <b>기다리는 구간</b>입니다.${nextBuy ? ` 다음 매수는 ${nextBuy.label} ${fmtP(nextBuy.price)} (${fmtPct(nextBuy.price / r.price - 1, true)})` : ""}${nextBuy && nextSell ? "," : ""}${nextSell ? ` 다음 매도는 ${nextSell.label} ${fmtP(nextSell.price)} (${fmtPct(nextSell.price / r.price - 1, true)})` : ""}${nextBuy || nextSell ? "입니다." : ""}</li>`);
   if (!model.trades.length) lines.push(`<li class="muted">아직 기록이 없어 계획 기준으로 보여줍니다. 실제로 샀거나 팔았으면 아래에 기록하세요. 기록하면 남은 현금과 수량이 그에 맞춰 다시 계산됩니다.</li>`);
   $("todo").innerHTML = `<p><strong>지금 할 일</strong></p><ul>${lines.join("")}</ul>`;
@@ -1095,7 +1106,7 @@ function render() {
     <p>${wLine} ${nowLine}</p>
     ${r.levelNote ? `<p class="warn">${esc(r.levelNote)}</p>` : ""}
     ${r.endRule === "newhigh" ? `<p class="muted">이 종목은 전고점을 다시 넘은 하락이 적어서, 52주 신고가를 새로 쓴 날도 사이클이 끝난 것으로 셌습니다.</p>` : ""}`;
-  const alloc = allocate(r.stages);
+  const alloc = allocate(r.stages, r.price);
   const showAmt = !!(alloc && alloc.rows); $("amtH").hidden = !showAmt; $("qtyH").hidden = !showAmt;
   const pricePerShareB = toBudgetCcy(r.price);
   const isIndex = /\(\^[^)]+\)$/.test(state.name || "");
@@ -1112,16 +1123,17 @@ function render() {
       <td class="hist">${r.N}번 중 <b>${st.count}번</b>${st.count <= 2 && r.N ? " · 사례 적음" : ""}</td>
       <td class="n">${fmtDur(st.recMed)}</td>
       <td class="n">${Math.round(st.w * 100)}%</td>
-      ${showAmt ? `<td class="n">${fmtMoneyP(alloc.rows[i].planned, true)}</td><td class="n ${alloc.rows[i].q === 0 ? "warncell" : ""}">${alloc.rows[i].q === 0 ? "0주 · 다음 단계로" : fmtQty(alloc.rows[i].q)}</td>` : ""}
-      <td class="n">${fmtP(st.avg)}</td>
+      ${showAmt ? `<td class="n">${fmtMoneyP(alloc.rows[i].planned, true)}</td><td class="n ${alloc.rows[i].q === 0 ? "warncell" : ""}">${alloc.rows[i].q === 0 ? "0주 · 다음 단계로" : fmtQty(alloc.rows[i].q)}${alloc.rows[i].atNow ? `<br><span class="stage-sub" style="margin:0">지금가 ${fmtP(alloc.rows[i].px)} 기준</span>` : ""}</td>` : ""}
+      <td class="n">${fmtP(showAmt && alloc.rows[i].avg ? alloc.rows[i].avg : st.avg)}</td>
     </tr>`).join("");
   const filled = r.stages.filter(st => st.reached);
   const fw = filled.reduce((a, s) => a + s.w, 0);
-  const avgVs = r.fullAvg / r.price - 1;
+  const planAvg = alloc && alloc.rows && alloc.totalQ > 0 ? alloc.totalCost / alloc.totalQ : r.fullAvg;
+  const avgVs = planAvg / r.price - 1;
   $("totals").innerHTML = `
-    <div><span class="v">${fmtP(r.fullAvg)}</span><span class="k">모든 단계를 채웠을 때 평균단가</span></div>
+    <div><span class="v">${fmtP(planAvg)}</span><span class="k">모든 단계를 채웠을 때 평균단가${planAvg !== r.fullAvg ? " · 지난 단계는 지금가로 계산" : ""}</span></div>
     <div><span class="v ${avgVs < 0 ? "neg" : "pos"}">${fmtPct(avgVs, true)}</span><span class="k">현재가 대비 평균단가</span></div>
-    <div><span class="v">${Math.round(fw * 100)}%</span><span class="k">지금 가격 기준 이미 살 수 있는 비중${showAmt ? ` · ${fmtMoneyP(alloc.rows.filter((_, i) => r.stages[i].reached).reduce((a, x) => a + x.cost, 0))}` : ""}</span></div>
+    <div><span class="v">${Math.round(fw * 100)}%</span><span class="k">이미 지난 단계 비중 (한 단계씩 10거래일 간격으로)${showAmt ? ` · ${fmtMoneyP(alloc.rows.filter((_, i) => r.stages[i].reached).reduce((a, x) => a + x.cost, 0))}` : ""}</span></div>
     ${showAmt ? `<div><span class="v" style="font-size:18px">${fmtMoneyP(alloc.leftover)}</span><span class="k">5단계까지 다 사고 남는 현금 · 총 ${fmtQty(alloc.totalQ)}</span></div>` : ""}`;
   $("asof").textContent = `기준일 ${r.asof} 종가 · 52주 최고가 ${r.hiDate} · 데이터 ${state.isExample ? "가상 예시" : (state.source || "업로드한 파일")}`;
   const model = buildModel(r); lastModel = model;
@@ -1396,7 +1408,8 @@ function recordFill(key, x, nowPrice) {
   const type = x.kind === "buy" ? "buy" : "sell";
   const list = (s.trades[key] || []).slice();
   if (list.some(t => t.stage === stage && !t.imported)) return { err: "이미 기록된 단계예요." };
-  const price = Math.round((x.kind === "trail" && nowPrice ? nowPrice : x.price) * 10000) / 10000;
+  const px0 = !nowPrice ? x.price : x.kind === "trail" ? nowPrice : x.kind === "buy" ? Math.min(x.price, nowPrice) : Math.max(x.price, nowPrice);
+  const price = Math.round(px0 * 10000) / 10000;
   let qty = Number(x.q);
   if (type === "sell") qty = Math.min(qty, position(sortTrades(list.slice())).qty);
   if (!(price > 0) || !(qty > 0)) return { err: "기록할 수량이 없어요." };
@@ -1635,7 +1648,7 @@ async function computeAlert(key, plan) {
     return { key, price: last[1], asof: last[0], dd: last[1] / hi - 1, short: true, levels: [], sum: { due: [], nextBuy: null, nextSell: null } };
   }
   return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
-    const r = analyze(series, state); const alloc = allocate(r.stages); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
+    const r = analyze(series, state); const alloc = allocate(r.stages, r.price); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
     const L = buildLadder(r, model, sp); queueLevels(key, levelsFromLadder(r, L, model.pos.qty > 0));
     return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg, levels: r.stages.map(x => x.L), high: r.high };
   });
