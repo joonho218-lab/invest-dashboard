@@ -1555,6 +1555,7 @@ $("tgBody").addEventListener("click", async (e) => {
   const id = e.target.closest("button, a") && e.target.closest("button, a").id;
   try {
     if (id === "tgOn") {
+      if (syncCode() || e.target.disabled) return; e.target.disabled = true; e.target.textContent = "켜는 중…";
       const code = newCode(); await syncCall("register", {}, code);
       const s = loadStore(); s.sync = { code }; saveStore(s);
       const rows = Object.keys(s.plans || {}).map(rowFor).filter(Boolean); if (rows.length) await syncCall("push", { tickers: rows });
