@@ -193,6 +193,9 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .chip-due.b { background: var(--down); } .chip-due.s { background: var(--up); }
 .chip-wait { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
 @media (max-width: 640px) { .alert { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.codebox summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.codebox code { font-family: var(--font-num); background: var(--soft); padding: 4px 8px; border-radius: 6px; word-break: break-all; }
 #todo ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 tr.due td { background: var(--mark-row); }
 tr.isdone td { opacity: .6; }
@@ -228,6 +231,12 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     </div>
     <div id="alertsList" class="alerts"></div>
     <p class="note" style="margin:0">투자금을 넣었거나 매매 기록이 있는 종목은 이 사이트를 열 때마다 최신 가격으로 계획을 다시 계산해 여기에 보여줍니다. 종목을 누르면 진행 상황으로 이동합니다.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="tgH">
+    <h2 id="tgH">휴대폰 알림 (텔레그램)</h2>
+    <div id="tgBody"></div>
+    <p class="note" id="syncNote" style="margin:0" role="status"></p>
   </section>
 
   <section class="panel" aria-labelledby="dataH">
@@ -846,15 +855,15 @@ function buildLadder(r, model, sp) {
   const L = [];
   const hasPos = model.pos.qty > 0;
   if (sp && !sp.need) {
-    sp.rows.forEach(x => L.push({ price: x.price, kind: "sell", label: `${x.k}차 매도`, q: x.q, done: x.executed, note: `평단 대비 ${fmtPct(x.ret, true)}`, due: !x.executed && hasPos && r.price >= x.price && x.ret >= 0, warn: x.ret < 0 }));
-    if (sp.trail) L.push({ price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
+    sp.rows.forEach(x => L.push({ code: `s${x.k}`, price: x.price, kind: "sell", label: `${x.k}차 매도`, q: x.q, done: x.executed, note: `평단 대비 ${fmtPct(x.ret, true)}`, due: !x.executed && hasPos && r.price >= x.price && x.ret >= 0, warn: x.ret < 0 }));
+    if (sp.trail) L.push({ code: "trail", price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
   }
-  model.buyRows.forEach(b => L.push({ price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price }));
+  model.buyRows.forEach(b => L.push({ code: `b${b.st.k}`, price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price }));
   L.sort((a, b) => b.price - a.price);
   return L;
 }
 
-let lastSell = null, lastLadder = [];
+let lastSell = null, lastLadder = [], lastModel = null;
 function renderLog(r, model, sp) {
   const sym = tradeKey();
   $("logTitle").textContent = `${state.name || "종목"} · 진행 상황`;
@@ -979,7 +988,7 @@ function render() {
     <div><span class="v">${Math.round(fw * 100)}%</span><span class="k">지금 가격 기준 이미 살 수 있는 비중${showAmt ? ` · ${fmtMoneyP(alloc.rows.filter((_, i) => r.stages[i].reached).reduce((a, x) => a + x.cost, 0))}` : ""}</span></div>
     ${showAmt ? `<div><span class="v" style="font-size:18px">${fmtMoneyP(alloc.leftover)}</span><span class="k">5단계까지 다 사고 남는 현금 · 총 ${fmtQty(alloc.totalQ)}</span></div>` : ""}`;
   $("asof").textContent = `기준일 ${r.asof} 종가 · 52주 최고가 ${r.hiDate} · 데이터 ${state.isExample ? "가상 예시" : (state.source || "업로드한 파일")}`;
-  const model = buildModel(r);
+  const model = buildModel(r); lastModel = model;
   const sp = renderSell(r, alloc, model);
   renderLog(r, model, sp);
   const dueN = lastLadder.filter(x => x.due).length; $("dueCnt").hidden = !dueN; $("dueCnt").textContent = dueN;
@@ -1322,13 +1331,18 @@ $("saveImg").addEventListener("click", exportPng);
 /* ---------- per-ticker plans + watchlist alerts (kept in this browser) ---------- */
 const SETTING_KEYS = ["start", "levelMode", "weighting", "minDepth", "fromYear", "fixed", "budget", "budgetCcy", "fx", "fractional", "sellLv", "trail", "sellBasis"];
 const clone = (v) => JSON.parse(JSON.stringify(v));
+const stableStr = (v) => Array.isArray(v) ? `[${v.map(stableStr).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + stableStr(v[k])).join(",")}}` : JSON.stringify(v === undefined ? null : v);
+const planSig = (name, ccy, settings, watch, trades) => stableStr([name, ccy, settings, watch, trades]);
 function pickSettings() { const o = {}; SETTING_KEYS.forEach(k => o[k] = clone(state[k] === undefined ? null : state[k])); return o; }
 function savePlan(forceWatch) {
   if (!state.series || state.isExample) return;
   const s = loadStore(); s.plans = s.plans || {};
   const key = tradeKey(); const prev = s.plans[key] || {};
-  s.plans[key] = { name: state.name, ccy: state.priceCcy, settings: pickSettings(), watch: forceWatch ? true : prev.watch !== false, t: Date.now() };
-  saveStore(s);
+  const settings = pickSettings(), watch = forceWatch ? true : prev.watch !== false;
+  const sig = planSig(state.name, state.priceCcy, settings, watch, (s.trades || {})[key] || []);
+  if (prev.sig === sig) return;
+  s.plans[key] = { name: state.name, ccy: state.priceCcy, settings, watch, t: Date.now(), sig };
+  saveStore(s); queuePlanPush(key);
 }
 function restorePlan() {
   const p = (loadStore().plans || {})[tradeKey()]; if (!p || !p.settings) return false;
@@ -1372,7 +1386,8 @@ async function computeAlert(key, plan) {
   if (!series || series.length < 260) return { key, error: "가격을 불러오지 못했습니다" };
   return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
     const r = analyze(series, state); const alloc = allocate(r.stages); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
-    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(buildLadder(r, model, sp)) };
+    const L = buildLadder(r, model, sp); queueLevels(key, levelsFromLadder(r, L, model.pos.qty > 0));
+    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L) };
   });
 }
 function renderAlerts() {
@@ -1411,7 +1426,10 @@ async function refreshAlerts() {
 function updateCurrentAlert(r) {
   if (state.isExample) { renderAlerts(); return; }
   const key = tradeKey();
-  if (watchedPlans().some(([k]) => k === key)) alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder) };
+  if (watchedPlans().some(([k]) => k === key)) {
+    alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder) };
+    if (lastModel) queueLevels(key, levelsFromLadder(r, lastLadder, lastModel.pos.qty > 0));
+  }
   renderAlerts();
 }
 function openWatched(key) {
@@ -1422,7 +1440,7 @@ function openWatched(key) {
 }
 $("alertsList").addEventListener("click", (e) => {
   const u = e.target.closest("[data-unwatch]");
-  if (u) { const s = loadStore(); if (s.plans && s.plans[u.dataset.unwatch]) { s.plans[u.dataset.unwatch].watch = false; saveStore(s); } renderAlerts(); return; }
+  if (u) { const k = u.dataset.unwatch; const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = false; s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); } renderAlerts(); return; }
   const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
 });
 $("refreshAlerts").addEventListener("click", refreshAlerts);
@@ -1456,6 +1474,116 @@ $("backupFile").addEventListener("change", (e) => {
 });
 
 
+/* ---------- phone alerts via Telegram + device sync (Supabase Edge Functions) ---------- */
+const SYNC_URL = "https://hcbfaedsgmhqhxnfpyoj.supabase.co/functions/v1/planner-sync";
+const syncCode = () => { const s = loadStore(); return s.sync && s.sync.code || null; };
+function newCode() { const a = new Uint8Array(24); crypto.getRandomValues(a); return Array.from(a, b => b.toString(16).padStart(2, "0")).join(""); }
+async function syncCall(action, extra = {}, code = syncCode()) {
+  if (!code || !location.protocol.startsWith("http")) return null;
+  const res = await fetch(SYNC_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code, action, site: location.origin, ...extra }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) { const e = new Error(j.error || `서버 응답 ${res.status}`); e.code = j.error; throw e; }
+  return j;
+}
+const levelsCache = {};
+function levelsFromLadder(r, L, hasPos) {
+  return { high: r.high, asof: r.asof, items: L.filter(x => !x.done && !x.warn && (x.kind === "buy" || (hasPos && x.q > 0)))
+    .map(x => ({ key: x.code, kind: x.kind, label: x.label, price: Math.round(x.price * 10000) / 10000, q: x.q })) };
+}
+function rowFor(key) {
+  const s = loadStore(); const p = (s.plans || {})[key]; if (!p) return null;
+  return { symbol: key, name: p.name, ccy: p.ccy, plan: p.settings, trades: (s.trades || {})[key] || [], watch: p.watch !== false, updated_at: new Date(p.t || Date.now()).toISOString(), levels: levelsCache[key] };
+}
+const pushTimers = {}; const levelSig = {};
+function queuePlanPush(key) {
+  if (!syncCode()) return;
+  clearTimeout(pushTimers[key]);
+  pushTimers[key] = setTimeout(async () => { const row = rowFor(key); if (!row) return; try { await syncCall("push", { tickers: [row] }); } catch (e) { setSyncNote(`동기화 실패: ${e.message}`); } }, 1200);
+}
+function queueLevels(key, levels) {
+  levelsCache[key] = levels;
+  if (!syncCode()) return;
+  const sig = JSON.stringify(levels.items);
+  if (levelSig[key] === sig) return; levelSig[key] = sig;
+  clearTimeout(pushTimers["L" + key]);
+  pushTimers["L" + key] = setTimeout(() => { syncCall("levels", { tickers: [{ symbol: key, levels }] }).catch(() => {}); }, 1500);
+}
+async function pullSync() {
+  const j = await syncCall("pull"); if (!j) return false;
+  const s = loadStore(); s.plans = s.plans || {}; s.trades = s.trades || {}; let changed = false; const remote = new Set();
+  for (const t of j.tickers || []) {
+    remote.add(t.symbol);
+    const local = s.plans[t.symbol]; const rt = Date.parse(t.updated_at) || 0;
+    if (!local || (local.t || 0) < rt - 1000) {
+      s.plans[t.symbol] = { name: t.name, ccy: t.ccy, settings: t.plan, watch: t.watch, t: rt, sig: planSig(t.name, t.ccy, t.plan, t.watch, t.trades || []) };
+      s.trades[t.symbol] = t.trades || []; changed = true;
+    }
+  }
+  saveStore(s);
+  // 이 기기에만 있거나 이 기기 쪽이 더 최신인 종목은 올려 보낸다
+  const ups = Object.keys(s.plans).filter(k => { const t = (j.tickers || []).find(x => x.symbol === k); return !t || (s.plans[k].t || 0) > (Date.parse(t.updated_at) || 0) + 1000; }).map(rowFor).filter(Boolean);
+  if (ups.length) await syncCall("push", { tickers: ups });
+  tgLinked = !!j.linked;
+  return changed;
+}
+let tgLinked = false, tgUrl = null;
+function setSyncNote(t) { const el = $("syncNote"); if (el) el.textContent = t; }
+function renderTg() {
+  const code = syncCode(); const box = $("tgBody");
+  if (!location.protocol.startsWith("http")) { box.innerHTML = `<p class="note">텔레그램 알림은 배포된 사이트 주소에서 켤 수 있습니다.</p>`; return; }
+  if (!code) {
+    box.innerHTML = `<p>장 마감 뒤 계획한 매수·매도 가격에 닿으면 텔레그램으로 알려드립니다. 미국 종목은 오전 7시대, 한국 종목은 오후 4시대에 확인합니다.</p>
+      <div class="row"><button class="btn primary" id="tgOn" type="button">텔레그램 알림 켜기</button>
+      <button class="btn" id="haveCode" type="button">다른 기기에서 쓰던 코드가 있어요</button></div>
+      <form class="row" id="codeForm" hidden><input id="codeIn" type="text" autocomplete="off" placeholder="연결 코드 붙여넣기" style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px"><button class="btn" type="submit">연결</button></form>`;
+    return;
+  }
+  const masked = code.slice(0, 4) + "…" + code.slice(-4);
+  box.innerHTML = `
+    ${tgLinked
+      ? `<p><b class="pos">✓ 텔레그램 연결됨</b> — 장 마감 뒤 계획 가격에 닿은 종목이 있으면 알려드립니다. 미국 종목 오전 7시대, 한국 종목 오후 4시대.</p>
+         <div class="row"><button class="btn" id="tgTest" type="button">테스트 메시지 보내기</button><button class="btn" id="tgOff" type="button">텔레그램 연결 끊기</button></div>`
+      : `<ol class="steps"><li><a class="btn primary" id="tgOpen" href="${tgUrl || "#"}" target="_blank" rel="noopener">${tgUrl ? "텔레그램 열기" : "연결 주소 만드는 중…"}</a> → 봇 화면에서 <b>시작(Start)</b>을 누르세요.</li>
+         <li>이 화면으로 돌아와 <button class="btn" id="tgCheck" type="button">연결 확인</button></li></ol>`}
+    <details class="codebox"><summary>다른 기기(휴대폰·PC)에서도 같은 기록 쓰기</summary>
+      <p class="note">아래 연결 코드를 다른 기기의 이 사이트에서 '다른 기기에서 쓰던 코드가 있어요'에 붙여넣으면 계획과 매매 기록이 함께 맞춰집니다. 코드는 비밀번호처럼 보관하세요.</p>
+      <div class="row"><code id="codeShow">${masked}</code><button class="btn" id="copyCode" type="button">코드 복사</button><button class="btn" id="syncNow" type="button">지금 동기화</button></div>
+    </details>`;
+  if (!tgLinked && !tgUrl) syncCall("tg_link").then(j => { tgUrl = j.url; renderTg(); }).catch(e => { setSyncNote(e.code === "no_token" ? "알림 봇이 아직 준비되지 않았습니다 (봇 토큰 설정 필요)." : `텔레그램 연결 주소를 만들지 못했습니다: ${e.message}`); });
+}
+$("tgBody").addEventListener("click", async (e) => {
+  const id = e.target.closest("button, a") && e.target.closest("button, a").id;
+  try {
+    if (id === "tgOn") {
+      const code = newCode(); await syncCall("register", {}, code);
+      const s = loadStore(); s.sync = { code }; saveStore(s);
+      const rows = Object.keys(s.plans || {}).map(rowFor).filter(Boolean); if (rows.length) await syncCall("push", { tickers: rows });
+      setSyncNote("알림을 켰습니다. 이제 텔레그램을 연결하세요."); renderTg(); refreshAlerts();
+    } else if (id === "haveCode") { $("codeForm").hidden = false; $("codeIn").focus(); }
+    else if (id === "tgCheck") {
+      setSyncNote("확인 중…"); const j = await syncCall("tg_status"); tgLinked = j.linked;
+      setSyncNote(j.linked ? "연결됐습니다. 텔레그램에 환영 메시지가 갔어요." : "아직 연결되지 않았습니다. 텔레그램에서 봇의 '시작'을 눌렀는지 확인해 주세요."); renderTg();
+    } else if (id === "tgTest") { await syncCall("tg_test"); setSyncNote("테스트 메시지를 보냈습니다."); }
+    else if (id === "tgOff") { if (e.target.dataset.confirm) { await syncCall("tg_unlink"); tgLinked = false; tgUrl = null; setSyncNote("연결을 끊었습니다."); renderTg(); } else { e.target.dataset.confirm = "1"; e.target.textContent = "정말 끊기"; } }
+    else if (id === "copyCode") {
+      const code = syncCode();
+      try { await navigator.clipboard.writeText(code); setSyncNote("코드를 복사했습니다."); } catch (err) { $("codeShow").textContent = code; setSyncNote("코드를 길게 눌러 복사하세요."); }
+    } else if (id === "syncNow") { setSyncNote("동기화 중…"); const ch = await pullSync(); setSyncNote(ch ? "다른 기기의 변경 내용을 받아왔습니다." : "이미 최신입니다."); if (ch) afterPull(); }
+  } catch (err) { setSyncNote(err.code === "no_token" ? "알림 봇이 아직 준비되지 않았습니다 (봇 토큰 설정 필요)." : `문제가 생겼습니다: ${err.message}`); }
+});
+$("tgBody").addEventListener("submit", async (e) => {
+  if (e.target.id !== "codeForm") return; e.preventDefault();
+  const code = $("codeIn").value.trim();
+  try { await syncCall("pull", {}, code); const s = loadStore(); s.sync = { code }; saveStore(s); const ch = await pullSync(); setSyncNote("연결됐습니다. 기록을 맞췄습니다."); renderTg(); if (ch) afterPull(); else refreshAlerts(); }
+  catch (err) { setSyncNote(err.code === "unknown_code" ? "코드를 찾지 못했습니다. 다시 확인해 주세요." : `문제가 생겼습니다: ${err.message}`); }
+});
+function afterPull() { if (state.series && !state.isExample) { restorePlan(); render(); } refreshAlerts(); }
+async function bootSync() {
+  if (!syncCode()) { renderTg(); return; }
+  try { const ch = await pullSync(); if (ch) afterPull(); } catch (e) { setSyncNote(`동기화하지 못했습니다: ${e.message}`); }
+  renderTg();
+}
+
 /* ---------- boot ---------- */
 renderRecent();
 const qT = new URLSearchParams(location.search).get("t");
@@ -1466,6 +1594,7 @@ if (qT) { $("ticker").value = qT.toUpperCase(); fetchTicker(qT); }
 updYahoo();
 showTab(location.hash.slice(1) || "buy");
 refreshAlerts();
+bootSync();
 window.__planner = { analyze, extractSeries, exampleSeries, state, allocate, sellPlan };
 })();
 </script>
