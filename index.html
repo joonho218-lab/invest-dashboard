@@ -71,7 +71,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .field input[type="number"] { width: 110px; }
 .field input#ticker { width: 160px; }
 .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.btn { border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 14px; }
+.btn { text-decoration: none; display: inline-block; border: 1px solid var(--line); background: var(--paper); border-radius: 999px; padding: 7px 14px; cursor: pointer; font-size: 14px; }
 .btn:hover { border-color: var(--ink); }
 .btn.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .seg { display: inline-flex; background: var(--soft); border-radius: 999px; padding: 3px; gap: 2px; }
@@ -180,6 +180,19 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .poskpis .k { font-size: 12px; color: var(--muted); }
 #ladder td:nth-child(3), tr.nowrow td:last-child, #tradeBody td:nth-child(2), #tradeBody td:nth-child(3) { text-align: left; }
 #posKpis .v[style] { font-size: 16px !important; }
+.alerts { display: grid; gap: 6px; }
+.alert { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1fr) minmax(0, 2fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.alert.hasdue { border-color: var(--down); background: var(--mark-row); }
+.alert .alink { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: var(--ink); font-size: 15px; }
+.alert .alink:hover b { text-decoration: underline; }
+.alert .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 14px; }
+.alert .adue { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.alert .anext { grid-column: 2 / 4; font-size: 12px; }
+.alert .x { grid-column: 4; grid-row: 1; border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 4px; }
+.chip-due { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: #fff; }
+.chip-due.b { background: var(--down); } .chip-due.s { background: var(--up); }
+.chip-wait { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
+@media (max-width: 640px) { .alert { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } }
 #todo ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 tr.due td { background: var(--mark-row); }
 tr.isdone td { opacity: .6; }
@@ -207,6 +220,15 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <button class="btn primary" id="saveImg" type="button">매수 계획 이미지 저장</button>
     </div>
   </header>
+
+  <section class="panel alerts-panel" id="alertsPanel" aria-labelledby="alertsH" hidden>
+    <div class="row" style="justify-content:space-between">
+      <h2 id="alertsH">내 종목 알림 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
+      <button class="btn" id="refreshAlerts" type="button">최신 가격으로 다시 확인</button>
+    </div>
+    <div id="alertsList" class="alerts"></div>
+    <p class="note" style="margin:0">투자금을 넣었거나 매매 기록이 있는 종목은 이 사이트를 열 때마다 최신 가격으로 계획을 다시 계산해 여기에 보여줍니다. 종목을 누르면 진행 상황으로 이동합니다.</p>
+  </section>
 
   <section class="panel" aria-labelledby="dataH">
     <h2 id="dataH">1. 종목 불러오기</h2>
@@ -383,6 +405,12 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <li><b>한국 주식 — KRX 정보데이터시스템</b>: <a href="https://data.krx.co.kr" target="_blank" rel="noopener">data.krx.co.kr</a> › 주식 › 종목시세 › 개별종목 시세 추이 › 기간 설정 후 CSV 다운로드 (<code>일자</code>, <code>종가</code> 열을 자동으로 찾습니다).</li>
       <li><b>엑셀·구글시트</b>: <code>=GOOGLEFINANCE("NASDAQ:QQQ","close",DATE(2006,1,1),TODAY())</code> 결과를 복사해 <i>표 붙여넣기</i>에 넣어도 됩니다.</li>
     </ol>
+    <div class="row" style="margin-top:4px">
+      <button class="btn" id="exportBackup" type="button">기록 백업 저장</button>
+      <button class="btn" id="importBackup" type="button">백업 불러오기</button>
+      <input id="backupFile" type="file" accept=".json,application/json" hidden>
+      <span class="note" id="backupMsg">계획과 매매 기록은 이 브라우저에만 저장됩니다. 휴대폰↔PC로 옮길 때 백업 파일을 쓰세요.</span>
+    </div>
     <p class="note">배당·분할이 반영된 <b>수정종가</b> 열이 있으면 그 열을 우선 사용합니다. 최소 1년(약 260거래일) 이상, 통계를 위해서는 10년 이상을 권합니다.</p>
   </section>
 </div>
@@ -726,10 +754,17 @@ function sellPlan(r, alloc, model) {
     if (qty != null) basisLabel += ` · ${fmtQty(qty)}`;
   }
   let used = 0;
+  // whole shares: split by largest remainder so small holdings still get a sell step
+  let units = null;
+  if (base != null && !state.fractional) {
+    const parts = [...state.sellLv.map(L => base * L.w / 100), base * Math.max(0, 1 - state.sellLv.reduce((a, L) => a + L.w, 0) / 100)];
+    units = parts.map(Math.floor); let left = Math.round(base - units.reduce((a, b) => a + b, 0));
+    parts.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).forEach(([, i]) => { if (left > 0) { units[i]++; left--; } });
+  }
   const rows = state.sellLv.map((L, i) => {
     const price = r.high * (1 + L.p / 100), w = L.w / 100; used += w;
     const executed = fromLog ? model.doneS.get(i + 1) : null;
-    const q = executed ? executed.qty : base == null ? null : (state.fractional ? Math.floor(base * w * 10000) / 10000 : Math.floor(base * w));
+    const q = executed ? executed.qty : base == null ? null : (state.fractional ? Math.floor(base * w * 10000) / 10000 : units[i]);
     return { k: i + 1, p: L.p, price, w, vsNow: price / r.price - 1, ret: price / avg - 1, reachedNow: r.price >= price, executed, st: sellStats(r, D, 1 + L.p / 100), q };
   });
   const restW = Math.max(0, 1 - used);
@@ -807,6 +842,18 @@ function buildSellLevels() {
 }
 
 /* ---------- progress: what to do at each price ---------- */
+function buildLadder(r, model, sp) {
+  const L = [];
+  const hasPos = model.pos.qty > 0;
+  if (sp && !sp.need) {
+    sp.rows.forEach(x => L.push({ price: x.price, kind: "sell", label: `${x.k}차 매도`, q: x.q, done: x.executed, note: `평단 대비 ${fmtPct(x.ret, true)}`, due: !x.executed && hasPos && r.price >= x.price && x.ret >= 0, warn: x.ret < 0 }));
+    if (sp.trail) L.push({ price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
+  }
+  model.buyRows.forEach(b => L.push({ price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price }));
+  L.sort((a, b) => b.price - a.price);
+  return L;
+}
+
 let lastSell = null, lastLadder = [];
 function renderLog(r, model, sp) {
   const sym = tradeKey();
@@ -819,16 +866,8 @@ function renderLog(r, model, sp) {
     <div><span class="v ${unreal < 0 ? "neg" : unreal > 0 ? "pos" : ""}" style="font-size:18px">${pos.qty > 0 ? `${fmtMoneyP(unreal, true)} (${fmtPct(r.price / pos.avg - 1, true)})` : "—"}</span><span class="k">평가 손익</span></div>
     <div><span class="v ${pos.realized < 0 ? "neg" : pos.realized > 0 ? "pos" : ""}" style="font-size:18px">${fmtMoneyP(pos.realized, true)}</span><span class="k">실현 손익</span></div>
     ${model.remCash != null ? `<div><span class="v" style="font-size:18px">${fmtMoneyP(model.remCash, true)}</span><span class="k">계획에 남은 현금</span></div>` : ""}`;
-  // ladder
-  const L = [];
+  const L = buildLadder(r, model, sp); lastLadder = L;
   const hasPos = pos.qty > 0;
-  if (sp && !sp.need) {
-    sp.rows.forEach(x => L.push({ price: x.price, kind: "sell", label: `${x.k}차 매도`, q: x.q, done: x.executed, note: `평단 대비 ${fmtPct(x.ret, true)}`, due: !x.executed && hasPos && r.price >= x.price && x.ret >= 0, warn: x.ret < 0 }));
-    if (sp.trail) L.push({ price: sp.trail.price, kind: "trail", label: "추세 정리", q: sp.restQ, note: `${sp.trail.since} 이후 최고 종가 ${fmtP(sp.trail.max)}에서 −${state.trail}%`, due: r.price < sp.trail.price });
-  }
-  model.buyRows.forEach(b => L.push({ price: b.st.price, kind: "buy", label: `${b.st.k}단계 매수`, q: b.q, amt: b.amt, done: b.done, note: b.st.k === r.stages.length ? "이 아래는 과거에 없던 하락 — 추가 매수 중단, 재점검" : `고점 대비 −${(b.st.L * 100).toFixed(1)}%`, due: !b.done && r.price <= b.st.price }));
-  L.sort((a, b) => b.price - a.price);
-  lastLadder = L;
   const row = (x) => {
     const status = x.done ? `<span class="pos">완료 · ${x.done.date}</span>`
       : x.due ? `<b class="${x.kind === "buy" ? "neg" : "pos"}">${x.kind === "buy" ? "지금 매수할 차례" : x.kind === "trail" ? "정리할 차례" : "지금 매도할 차례"}</b>`
@@ -946,6 +985,8 @@ function render() {
   const dueN = lastLadder.filter(x => x.due).length; $("dueCnt").hidden = !dueN; $("dueCnt").textContent = dueN;
   renderChart(r, sp);
   renderCycles(r);
+  savePlan();
+  updateCurrentAlert(r);
 }
 
 function renderCycles(r) {
@@ -1009,6 +1050,7 @@ function setData(name, series, isExample, remember = true, meta = {}) {
   $("priceCcy").value = state.priceCcy; $("fxF").hidden = state.priceCcy === state.budgetCcy;
   if (state.priceCcy !== state.budgetCcy) loadFx();
   if (!isExample && remember) { rememberDataset(name, series); renderRecent(); }
+  if (!isExample && !restorePlan()) { state.budget = null; $("budget").value = ""; }
   setBasis(getTrades().length ? "log" : (state.sellBasis === "log" ? "filled" : state.sellBasis));
   ["tPrice", "tQty", "tStage"].forEach(id => delete $(id).dataset.touched);
   setStatus(`${isExample ? "가상 예시" : name}: ${series.length.toLocaleString()}거래일 (${series[0][0]} ~ ${series[series.length - 1][0]})`);
@@ -1121,7 +1163,7 @@ $("tradeForm").addEventListener("submit", (e) => {
   msg(`${type === "buy" ? "매수" : "매도"} ${fmtQty(qty)} @ ${fmtP(price)} 기록했습니다.${dup ? " 같은 단계 기록이 이미 있어 최신 기록 기준으로 표시합니다." : ""}`);
   ["tPrice", "tQty", "tStage"].forEach(id => delete $(id).dataset.touched);
   if (state.sellBasis !== "log") setBasis("log");
-  render();
+  render(); savePlan(true); updateCurrentAlert(lastResult);
 });
 $("tradeBody").addEventListener("click", (e) => {
   const b = e.target.closest("button.del"); if (!b) return;
@@ -1277,6 +1319,143 @@ function wrapLines(g, text, maxW, font) {
 function wrapText(g, text, x, y, maxW, lh) { const ls = wrapLines(g, text, maxW); ls.forEach((l, i) => g.fillText(l, x, y + i * lh)); return y + (ls.length - 1) * lh; }
 $("saveImg").addEventListener("click", exportPng);
 
+/* ---------- per-ticker plans + watchlist alerts (kept in this browser) ---------- */
+const SETTING_KEYS = ["start", "levelMode", "weighting", "minDepth", "fromYear", "fixed", "budget", "budgetCcy", "fx", "fractional", "sellLv", "trail", "sellBasis"];
+const clone = (v) => JSON.parse(JSON.stringify(v));
+function pickSettings() { const o = {}; SETTING_KEYS.forEach(k => o[k] = clone(state[k] === undefined ? null : state[k])); return o; }
+function savePlan(forceWatch) {
+  if (!state.series || state.isExample) return;
+  const s = loadStore(); s.plans = s.plans || {};
+  const key = tradeKey(); const prev = s.plans[key] || {};
+  s.plans[key] = { name: state.name, ccy: state.priceCcy, settings: pickSettings(), watch: forceWatch ? true : prev.watch !== false, t: Date.now() };
+  saveStore(s);
+}
+function restorePlan() {
+  const p = (loadStore().plans || {})[tradeKey()]; if (!p || !p.settings) return false;
+  SETTING_KEYS.forEach(k => { if (p.settings[k] !== undefined && p.settings[k] !== null || k === "budget" || k === "fx" || k === "fromYear") state[k] = clone(p.settings[k]); });
+  applySettingsToUI(); return true;
+}
+function applySettingsToUI() {
+  const press = (id, v) => document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
+  press("startSeg", Number(state.start).toFixed(2)); press("levelSeg", state.levelMode); press("budgetSeg", state.budgetCcy); press("basisSeg", state.sellBasis);
+  $("fixedBox").hidden = state.levelMode !== "fixed";
+  $("weighting").value = state.weighting; $("minDepth").value = Math.round(state.minDepth * 100);
+  $("fromYear").value = state.fromYear || ""; $("budget").value = state.budget || ""; $("fx").value = state.fx || "";
+  $("fractional").checked = !!state.fractional;
+  state.fixed.forEach((v, i) => { const el = $("fx" + i); if (el) el.value = v; });
+  buildSellLevels();
+}
+function watchedPlans() {
+  const s = loadStore(); const plans = s.plans || {}; const trades = s.trades || {};
+  return Object.entries(plans).filter(([k, p]) => p.watch !== false && ((p.settings && p.settings.budget > 0) || (trades[k] && trades[k].length)))
+    .sort((a, b) => b[1].t - a[1].t);
+}
+function withState(over, fn) {
+  const keep = {}; Object.keys(state).forEach(k => keep[k] = state[k]);
+  Object.assign(state, clone(over));
+  try { return fn(); } finally { Object.keys(state).forEach(k => { if (!(k in keep)) delete state[k]; }); Object.assign(state, keep); }
+}
+function summarize(L) {
+  const due = L.filter(x => x.due);
+  const nextBuy = L.filter(x => x.kind === "buy" && !x.done && !x.due).sort((a, b) => b.price - a.price)[0];
+  const nextSell = L.filter(x => x.kind !== "buy" && !x.done && !x.due && !x.warn && x.q > 0).sort((a, b) => a.price - b.price)[0];
+  return { due, nextBuy, nextSell };
+}
+const alertCache = {};
+const fmtQtyRaw = (q) => (Math.round(q * 10000) / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 4 });
+async function computeAlert(key, plan) {
+  let series = null, ccy = plan.ccy;
+  if (location.protocol.startsWith("http") && /^[\^A-Z0-9.\-=]{1,20}$/.test(key)) {
+    try { const res = await fetch(`/api/prices?symbol=${encodeURIComponent(key)}`); if (res.ok) { const j = await res.json(); series = j.dates.map((d, i) => [d, j.close[i]]); ccy = j.currency || ccy; } } catch (e) {}
+  }
+  if (!series) { const st = (loadStore().sets || {})[plan.name]; if (st) series = st.d.map((d, i) => [d, st.c[i]]); }
+  if (!series || series.length < 260) return { key, error: "가격을 불러오지 못했습니다" };
+  return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
+    const r = analyze(series, state); const alloc = allocate(r.stages); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
+    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(buildLadder(r, model, sp)) };
+  });
+}
+function renderAlerts() {
+  const list = watchedPlans(); const box = $("alertsList");
+  $("alertsPanel").hidden = !list.length;
+  let dueTotal = 0;
+  box.innerHTML = list.map(([key, p]) => {
+    const a = alertCache[key];
+    const nm = esc(String(p.name).replace(/\s*\([^)]*\)$/, "")), sym = esc(key);
+    const head = `<button type="button" class="alink" data-key="${sym}"><b>${nm}</b>${nm !== sym ? ` <span class="muted">${sym}</span>` : ""}</button>`;
+    const x = `<button type="button" class="x" data-unwatch="${sym}" aria-label="${sym} 알림 끄기" title="알림 목록에서 빼기">×</button>`;
+    if (!a) return `<div class="alert">${head}<span class="muted">확인 중…</span>${x}</div>`;
+    if (a.error) return `<div class="alert">${head}<span class="neg">${a.error}</span>${x}</div>`;
+    dueTotal += a.sum.due.length;
+    const chips = a.sum.due.length ? a.sum.due.map(d => `<span class="chip-due ${d.kind === "buy" ? "b" : "s"}">${d.kind === "buy" ? "매수" : "매도"} 차례 · ${d.label.replace(/ 매수| 매도/, "")} ${fmtP(d.price)}${d.q ? ` · ${fmtQtyRaw(d.q)}주` : ""}</span>`).join("")
+      : `<span class="chip-wait">대기</span>`;
+    const next = [a.sum.nextBuy ? `다음 매수 ${a.sum.nextBuy.label.replace(" 매수", "")} ${fmtP(a.sum.nextBuy.price)} (${fmtPct(a.sum.nextBuy.price / a.price - 1, true)})` : "",
+      a.sum.nextSell ? `다음 매도 ${a.sum.nextSell.label.replace(" 매도", "")} ${fmtP(a.sum.nextSell.price)} (${fmtPct(a.sum.nextSell.price / a.price - 1, true)})` : ""].filter(Boolean).join(" · ");
+    return `<div class="alert ${a.sum.due.length ? "hasdue" : ""}">${head}
+      <span class="num">${fmtP(a.price)} <span class="${a.dd < 0 ? "neg" : ""}">${fmtPct(a.dd, true)}</span> <span class="muted" style="font-size:12px">${a.asof}</span></span>
+      <span class="adue">${chips}</span><span class="muted anext">${next}</span>${x}</div>`;
+  }).join("");
+  document.title = dueTotal ? `(${dueTotal}) 분할매수 플래너` : "분할매수 플래너";
+  $("alertsSum").textContent = dueTotal ? `할 일 ${dueTotal}건` : "지금 할 일 없음";
+  $("alertsSum").className = dueTotal ? "neg" : "muted";
+}
+let alertsAt = 0;
+async function refreshAlerts() {
+  alertsAt = Date.now();
+  const list = watchedPlans(); renderAlerts();
+  for (const [key, p] of list) { // one at a time keeps the shared state swap simple
+    try { alertCache[key] = await computeAlert(key, p); } catch (e) { alertCache[key] = { key, error: "계산하지 못했습니다" }; }
+    renderAlerts();
+  }
+}
+function updateCurrentAlert(r) {
+  if (state.isExample) { renderAlerts(); return; }
+  const key = tradeKey();
+  if (watchedPlans().some(([k]) => k === key)) alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder) };
+  renderAlerts();
+}
+function openWatched(key) {
+  const p = (loadStore().plans || {})[key]; if (!p) return;
+  const go = () => { showTab("log"); $("card").scrollIntoView && document.querySelector(".tabs").scrollIntoView({ behavior: "smooth", block: "start" }); };
+  if (location.protocol.startsWith("http") && /^[\^A-Z0-9.\-=]{1,20}$/.test(key)) { fetchTicker(key).then(go); return; }
+  const st = (loadStore().sets || {})[p.name]; if (st) { setData(p.name, st.d.map((d, i) => [d, st.c[i]]), false, false, { ccy: st.ccy }); go(); }
+}
+$("alertsList").addEventListener("click", (e) => {
+  const u = e.target.closest("[data-unwatch]");
+  if (u) { const s = loadStore(); if (s.plans && s.plans[u.dataset.unwatch]) { s.plans[u.dataset.unwatch].watch = false; saveStore(s); } renderAlerts(); return; }
+  const a = e.target.closest(".alink"); if (a) openWatched(a.dataset.key);
+});
+$("refreshAlerts").addEventListener("click", refreshAlerts);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && Date.now() - alertsAt > 10 * 60 * 1000) refreshAlerts(); });
+
+/* ---------- backup (move records between phone and PC) ---------- */
+$("exportBackup").addEventListener("click", () => {
+  const s = loadStore(); const data = JSON.stringify({ app: "bunhal-planner", v: 1, at: new Date().toISOString(), plans: s.plans || {}, trades: s.trades || {} }, null, 1);
+  const blob = new Blob([data], { type: "application/json" }); const url = URL.createObjectURL(blob);
+  const a = document.createElement("a"); a.href = url; a.download = `분할매수_백업_${new Date().toISOString().slice(0, 10)}.json`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000); $("backupMsg").textContent = "백업 파일을 저장했습니다. 다른 기기에서 '백업 불러오기'로 넣으세요.";
+});
+$("importBackup").addEventListener("click", () => $("backupFile").click());
+$("backupFile").addEventListener("change", (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  const fr = new FileReader();
+  fr.onload = () => {
+    try {
+      const j = JSON.parse(String(fr.result)); if (j.app !== "bunhal-planner") throw new Error();
+      const s = loadStore(); s.plans = { ...(s.plans || {}), ...(j.plans || {}) }; s.trades = s.trades || {};
+      let n = 0; Object.entries(j.trades || {}).forEach(([k, list]) => {
+        const have = new Set((s.trades[k] || []).map(t => t.id)); const add = list.filter(t => !have.has(t.id)); n += add.length;
+        s.trades[k] = [...(s.trades[k] || []), ...add];
+      });
+      saveStore(s); $("backupMsg").textContent = `불러왔습니다: 종목 ${Object.keys(j.plans || {}).length}개, 새 매매 기록 ${n}건.`;
+      if (state.series && !state.isExample) { restorePlan(); render(); }
+      refreshAlerts();
+    } catch (err) { $("backupMsg").textContent = "이 파일은 분할매수 플래너 백업이 아닙니다."; }
+  };
+  fr.readAsText(f);
+});
+
+
 /* ---------- boot ---------- */
 renderRecent();
 const qT = new URLSearchParams(location.search).get("t");
@@ -1286,6 +1465,7 @@ else setData("예시 종목", exampleSeries(), true);
 if (qT) { $("ticker").value = qT.toUpperCase(); fetchTicker(qT); }
 updYahoo();
 showTab(location.hash.slice(1) || "buy");
+refreshAlerts();
 window.__planner = { analyze, extractSeries, exampleSeries, state, allocate, sellPlan };
 })();
 </script>
