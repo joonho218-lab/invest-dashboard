@@ -194,6 +194,7 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .chip-wait { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
 @media (max-width: 640px) { .alert { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
+.startcmd { font-family: var(--font-num); background: var(--soft); padding: 2px 6px; border-radius: 6px; user-select: all; }
 .codebox summary { cursor: pointer; font-size: 14px; color: var(--muted); }
 .codebox code { font-family: var(--font-num); background: var(--soft); padding: 4px 8px; border-radius: 6px; word-break: break-all; }
 #todo ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
@@ -1544,7 +1545,8 @@ function renderTg() {
       ? `<p><b class="pos">✓ 텔레그램 연결됨</b> — 장 마감 뒤 계획 가격에 닿은 종목이 있으면 알려드립니다. 미국 종목 오전 7시대, 한국 종목 오후 4시대.</p>
          <div class="row"><button class="btn" id="tgTest" type="button">테스트 메시지 보내기</button><button class="btn" id="tgOff" type="button">텔레그램 연결 끊기</button></div>`
       : `<ol class="steps"><li><a class="btn primary" id="tgOpen" href="${tgUrl || "#"}" target="_blank" rel="noopener">${tgUrl ? "텔레그램 열기" : "연결 주소 만드는 중…"}</a> → 봇 화면에서 <b>시작(Start)</b>을 누르세요.</li>
-         <li>이 화면으로 돌아와 <button class="btn" id="tgCheck" type="button">연결 확인</button></li></ol>`}
+         <li>이 화면으로 돌아와 <button class="btn" id="tgCheck" type="button">연결 확인</button></li></ol>
+         ${tgUrl ? `<p class="note" style="margin:0">버튼으로 잘 안 되면 텔레그램 봇 대화창에 아래 한 줄을 그대로 보낸 뒤 '연결 확인'을 누르세요.<br><code class="startcmd">/start ${esc(tgUrl.split("start=")[1] || "")}</code> <button class="btn" id="copyStart" type="button">복사</button></p>` : ""}`}
     <details class="codebox"><summary>다른 기기(휴대폰·PC)에서도 같은 기록 쓰기</summary>
       <p class="note">아래 연결 코드를 다른 기기의 이 사이트에서 '다른 기기에서 쓰던 코드가 있어요'에 붙여넣으면 계획과 매매 기록이 함께 맞춰집니다. 코드는 비밀번호처럼 보관하세요.</p>
       <div class="row"><code id="codeShow">${masked}</code><button class="btn" id="copyCode" type="button">코드 복사</button><button class="btn" id="syncNow" type="button">지금 동기화</button></div>
@@ -1566,6 +1568,10 @@ $("tgBody").addEventListener("click", async (e) => {
       setSyncNote(j.linked ? "연결됐습니다. 텔레그램에 환영 메시지가 갔어요." : "아직 연결되지 않았습니다. 텔레그램에서 봇의 '시작'을 눌렀는지 확인해 주세요."); renderTg();
     } else if (id === "tgTest") { await syncCall("tg_test"); setSyncNote("테스트 메시지를 보냈습니다."); }
     else if (id === "tgOff") { if (e.target.dataset.confirm) { await syncCall("tg_unlink"); tgLinked = false; tgUrl = null; setSyncNote("연결을 끊었습니다."); renderTg(); } else { e.target.dataset.confirm = "1"; e.target.textContent = "정말 끊기"; } }
+    else if (id === "copyStart") {
+      const cmd = "/start " + (tgUrl.split("start=")[1] || "");
+      try { await navigator.clipboard.writeText(cmd); setSyncNote("복사했습니다. 봇 대화창에 붙여넣어 보내세요."); } catch (err) { setSyncNote("위 명령어를 길게 눌러 복사하세요."); }
+    }
     else if (id === "copyCode") {
       const code = syncCode();
       try { await navigator.clipboard.writeText(code); setSyncNote("코드를 복사했습니다."); } catch (err) { $("codeShow").textContent = code; setSyncNote("코드를 길게 눌러 복사하세요."); }
