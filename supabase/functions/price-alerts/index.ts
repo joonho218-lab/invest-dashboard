@@ -119,12 +119,14 @@ function reportText(market: string, rows: any[], names: Record<string, string>, 
   };
   const inZone = rows.filter((r) => zone(r) > 0).sort((a, b) => a.dd - b.dd);
   const near = rows.filter((r) => zone(r) === 0 && r.depths && (r.high52 * (1 - r.depths[0])) / r.last_price - 1 > -0.05).sort((a, b) => a.dd - b.dd);
-  const rest = rows.length - inZone.length - near.length;
+  const noLv = rows.filter((r) => !r.depths);
+  const rest = rows.length - inZone.length - near.length - noLv.length;
   const parts = [`📊 ${market === "US" ? "미국장" : "국장"} 마감 낙폭 · ${asof} 종가`, "52주 고점 대비 하락폭과 과거 기준 매수 단계"];
   if (inZone.length) parts.push(`\n🔥 1단계 이상 내려온 종목\n${inZone.map(line).join("\n")}`);
   if (near.length) parts.push(`\n👀 1단계까지 5% 이내\n${near.map(line).join("\n")}`);
   if (!inZone.length && !near.length) parts.push("\n지금은 1단계 가까이 내려온 종목이 없어요.");
   if (rest > 0) parts.push(`\n그 외 ${rest}개는 1단계까지 5% 넘게 남았어요.`);
+  if (noLv.length) parts.push(`\n📉 상장 기간이 짧아 단계 없이 낙폭만: ${noLv.map((r) => `${names[r.symbol] || r.symbol} ${pct(Number(r.dd))}`).join(", ")}`);
   if (site) parts.push(`\n계획 세우기: ${site.replace(/\/$/, "")}`);
   return parts.join("\n");
 }

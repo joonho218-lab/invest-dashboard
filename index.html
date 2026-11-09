@@ -1823,6 +1823,11 @@ $("favAddLev").addEventListener("click", () => addFav(true));
 renderRecent();
 const qT = new URLSearchParams(location.search).get("t");
 const st0 = loadStore();
+// 한 번만: 예전 버전은 열어본 종목을 모두 '진행 중'으로 저장했으므로, 매매 기록이 없는 계획은 '보기만'으로 되돌린다
+if ((st0.v || 1) < 2) {
+  Object.entries(st0.plans || {}).forEach(([k, p]) => { if (!((st0.trades || {})[k] || []).length) { p.watch = false; p.since = null; p.sig = null; } });
+  st0.v = 2; saveStore(st0);
+}
 // 예전에 월봉으로 잘못 저장된 데이터는 버린다
 if (st0.sets) { let bad = false; Object.keys(st0.sets).forEach(n => { const x = st0.sets[n]; try { assertDaily(x.d.map((d, i) => [d, x.c[i]])); } catch (e) { delete st0.sets[n]; bad = true; } }); if (bad) { if (!st0.sets[st0.last]) delete st0.last; saveStore(st0); renderRecent(); } }
 if (st0.last && st0.sets && st0.sets[st0.last]) { const s = st0.sets[st0.last]; setData(st0.last, s.d.map((d, i) => [d, s.c[i]]), false, false, { ccy: s.ccy }); }
