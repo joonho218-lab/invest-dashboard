@@ -171,6 +171,11 @@ details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 .field input#budget { width: 160px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; padding-top: 6px; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; }
+#recent { align-items: center; }
+#favEdit[aria-pressed="true"] { border-color: var(--down); color: var(--down); }
+.levpick { display: grid; gap: 8px; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
+.levlist { display: grid; gap: 6px; }
+.levrow { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 10px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
 .favbox { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 12px; }
 .favgrp { display: grid; grid-template-columns: 96px 1fr; gap: 8px; align-items: start; }
 .favgrp .lbl { padding-top: 6px; }
@@ -279,15 +284,16 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <p class="note" style="margin:0">한글 이름(삼성전자, 엔비디아), 영문 이름(nvidia), 티커(QQQ, ^GSPC), 6자리 종목코드(005930) 모두 검색됩니다. 목록에서 고르면 전체 기간 일봉 수정종가를 가져옵니다.</p>
     <div class="favbox">
       <div class="row" style="justify-content:space-between">
-        <div class="seg" id="favSeg" role="group" aria-label="즐겨찾기 분류">
+        <div class="row" style="gap:6px"><div class="seg" id="favSeg" role="group" aria-label="즐겨찾기 분류">
           <button type="button" data-v="us" aria-pressed="true">미국</button>
           <button type="button" data-v="kr" aria-pressed="false">한국</button>
           <button type="button" data-v="lev" aria-pressed="false">레버리지</button>
           <button type="button" data-v="mine" aria-pressed="false">내 즐겨찾기</button>
-        </div>
-        <div class="row" style="gap:6px"><button class="btn" id="favAdd" type="button" hidden>☆ 추가</button></div>
+        </div><button class="btn" id="favEdit" type="button" aria-pressed="false">편집</button></div>
+        <div class="row" style="gap:6px"><button class="btn" id="favAdd" type="button" hidden>☆ 추가</button><button class="btn" id="favLev" type="button" hidden>⚡ 레버리지 상품으로 추가</button></div>
       </div>
       <div id="favList"></div>
+      <div class="levpick" id="levPick" hidden></div>
       <p class="note" id="favNote" style="margin:0"></p>
     </div>
     <div class="row">
@@ -502,15 +508,20 @@ function rememberDataset(name, series) {
 function renderRecent() {
   const s = loadStore(); const el = $("recent"); el.innerHTML = "";
   if (!s.sets) return;
-  Object.keys(s.sets).sort((a, b) => s.sets[b].t - s.sets[a].t).forEach(n => {
-    const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.textContent = n;
+  const names = Object.keys(s.sets).sort((a, b) => s.sets[b].t - s.sets[a].t);
+  if (names.length) { const l = document.createElement("span"); l.className = "lbl"; l.textContent = "최근 불러온 종목"; l.style.alignSelf = "center"; el.appendChild(l); }
+  names.forEach(n => {
+    const w = document.createElement("span"); w.className = "fav";
+    const b = document.createElement("button"); b.type = "button"; b.className = "favgo"; b.textContent = n.replace(/\s*\(([^)]+)\)$/, " · $1");
     b.addEventListener("click", () => {
       const st = loadStore().sets[n]; if (!st) return;
       const m = n.match(/\(([^)]+)\)$/) || n.match(/^([\^A-Z0-9.\-=]{1,20})$/);
-      if (m && location.protocol.startsWith("http")) { fetchTicker(m[1].replace(/\.(KS|KQ)$/, "")); return; }
+      if (m && location.protocol.startsWith("http")) { fetchTicker(m[1], n.replace(/\s*\([^)]*\)$/, "")); return; }
       setData(n, st.d.map((d, i) => [d, st.c[i]]), false, false, { ccy: st.ccy });
     });
-    el.appendChild(b);
+    const x = document.createElement("button"); x.type = "button"; x.className = "favx"; x.textContent = "×"; x.setAttribute("aria-label", `${n} 목록에서 지우기`); x.title = "목록에서 지우기 (계획·매매 기록은 그대로)";
+    x.addEventListener("click", () => { const st = loadStore(); if (st.sets) delete st.sets[n]; if (st.last === n) delete st.last; saveStore(st); renderRecent(); });
+    w.append(b, x); el.appendChild(w);
   });
 }
 
@@ -1783,32 +1794,41 @@ const favNote = {
   lev: "채널에서 전략과 낙폭을 따로 분석한 레버리지 ETF입니다. 레버리지는 매일 배율을 다시 맞추는 구조라 횡보·하락이 길면 기초지수보다 더 깎일 수 있어요. QLD는 2006년, TQQQ는 2010년부터 데이터가 있어 닷컴버블 같은 큰 하락이 과거 통계에 빠져 있다는 점도 함께 보세요. 국내 레버리지는 채널에서 따로 다루지 않아 '내 즐겨찾기'에 직접 추가하면 됩니다.",
   mine: "지금 보고 있는 종목을 '★ 추가'로 넣으면 여기에 모입니다.",
 };
+let favEdit = false;
 let favTab = (() => { try { return localStorage.getItem("bunhal-favtab") || "us"; } catch (e) { return "us"; } })();
 function myFavs() { return loadStore().favs || []; }
 function renderFavs() {
   document.querySelectorAll("#favSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === favTab)));
   const cur = tradeKey().replace(/\.(KS|KQ)$/, "");
-  const chip = (sym, label, mine, ysym) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}${ddBadge(ysym || sym)}</button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
+  const chip = (sym, label, mine, ysym) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(ysym || sym)}" title="${esc(label)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}${ddBadge(ysym || sym)}</button>${mine === "hide" ? `<button type="button" class="favx" data-hide="${esc(sym)}" aria-label="${esc(label)} 숨기기" title="목록에서 숨기기">×</button>` : mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
   let html = "";
   if (favTab === "mine") {
     const list = myFavs();
     html = list.length ? `<div class="favgrp"><div class="favchips">${list.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>` : "";
   } else {
-    html = FAVS[favTab].map(([g, items]) => `<div class="favgrp"><span class="lbl">${g}</span><div class="favchips">${items.map(([s, n]) => chip(s, n, false)).join("")}</div></div>`).join("");
-    if (favTab === "lev") { const mineLev = myFavs().filter(f => isLeverage(f.name, f.ysym || f.sym)); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>`; }
+    const hidden = new Set(loadStore().favHidden || []);
+    html = FAVS[favTab].map(([g, items]) => { const vis = items.filter(([s0]) => !hidden.has(s0)); return vis.length ? `<div class="favgrp"><span class="lbl">${g}</span><div class="favchips">${vis.map(([s0, n]) => chip(s0, n, favEdit ? "hide" : false)).join("")}</div></div>` : ""; }).join("");
+    const nh = FAVS[favTab].reduce((a, [, items]) => a + items.filter(([s0]) => hidden.has(s0)).length, 0);
+    if (nh) html += `<div class="favgrp"><span class="lbl"></span><div><button class="btn" type="button" id="favUnhide" style="font-size:12px;padding:4px 10px">숨긴 ${nh}개 다시 보이기</button></div></div>`;
+    if (favTab === "lev") { const mineLev = myFavs().filter(f => isLeverage(f.full || f.name, f.ysym || f.sym)); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>`; }
   }
   $("favList").innerHTML = html;
   const asof = Object.values(marketDD).filter(x => !x.market || x.market === (favTab === "kr" ? "KR" : "US")).map(x => x.asof).filter(Boolean).sort().pop();
   $("favNote").textContent = favNote[favTab] + (asof ? ` 숫자는 52주 고점 대비 하락폭(${asof} 종가)이고, 빨간 표시는 과거 기준 매수 단계에 들어온 종목이에요.` : "");
   const canAdd = state.series && !state.isExample;
   $("favAdd").hidden = !canAdd;
+  $("favLev").hidden = !canAdd || isLeverage(state.name, tradeKey()) || isInverse(state.name);
   if (canAdd) {
     const inMine = myFavs().some(f => f.sym === cur); const lev = isLeverage(state.name, tradeKey());
     $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} ${lev ? "레버리지 즐겨찾기에" : "내 즐겨찾기에"} 추가`; $("favAdd").disabled = inMine;
   }
 }
 $("favSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; favTab = b.dataset.v; try { localStorage.setItem("bunhal-favtab", favTab); } catch (er) {} renderFavs(); });
+$("favEdit").addEventListener("click", () => { favEdit = !favEdit; $("favEdit").setAttribute("aria-pressed", String(favEdit)); $("favEdit").textContent = favEdit ? "편집 끝내기" : "편집"; renderFavs(); });
 $("favList").addEventListener("click", (e) => {
+  const h = e.target.closest("[data-hide]");
+  if (h) { const s = loadStore(); s.favHidden = [...new Set([...(s.favHidden || []), h.dataset.hide])]; saveStore(s); renderFavs(); return; }
+  if (e.target.closest("#favUnhide")) { const s = loadStore(); const cur = new Set(FAVS[favTab].flatMap(([, items]) => items.map(([s0]) => s0))); s.favHidden = (s.favHidden || []).filter(x => !cur.has(x)); saveStore(s); renderFavs(); return; }
   const d = e.target.closest("[data-del]");
   if (d) { const s = loadStore(); s.favs = (s.favs || []).filter(f => f.sym !== d.dataset.del); saveStore(s); renderFavs(); pushPrefs(); return; }
   const g = e.target.closest(".favgo"); if (!g) return;
@@ -1827,6 +1847,86 @@ function addFav(lev) {
   saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs(); pushPrefs();
 }
 $("favAdd").addEventListener("click", () => addFav(isLeverage(state.name, tradeKey())));
+/* ---------- add the leveraged version of the current stock/index ---------- */
+// 기초자산 → 레버리지 상품 (Yahoo에서 시세가 받아지는 것만 확인해 넣음)
+const LEV_GROUPS = [
+  [["QQQ", "QQQM", "^IXIC", "^NDX"], "나스닥100", [["QLD", 2, "ProShares Ultra QQQ"], ["TQQQ", 3, "ProShares UltraPro QQQ"]]],
+  [["SPY", "VOO", "IVV", "^GSPC"], "S&P500", [["SSO", 2, "ProShares Ultra S&P500"], ["UPRO", 3, "ProShares UltraPro S&P500"], ["SPXL", 3, "Direxion Daily S&P500 Bull 3X"]]],
+  [["SOXX", "SMH", "^SOX"], "반도체", [["USD", 2, "ProShares Ultra Semiconductors"], ["SOXL", 3, "Direxion Daily Semiconductor Bull 3X"]]],
+  [["DIA", "^DJI"], "다우30", [["DDM", 2, "ProShares Ultra Dow30"], ["UDOW", 3, "ProShares UltraPro Dow30"]]],
+  [["IWM", "^RUT"], "러셀2000", [["UWM", 2, "ProShares Ultra Russell2000"], ["TNA", 3, "Direxion Daily Small Cap Bull 3X"]]],
+  [["GLD", "IAU"], "금", [["UGL", 2, "ProShares Ultra Gold"]]],
+  [["TLT"], "미국 장기채", [["UBT", 2, "ProShares Ultra 20+ Year Treasury"], ["TMF", 3, "Direxion Daily 20+ Year Treasury Bull 3X"]]],
+  [["PLTR"], "팔란티어", [["PLTU", 2, "Direxion Daily PLTR Bull 2X"], ["PTIR", 2, "GraniteShares 2x Long PLTR"]]],
+  [["NVDA"], "엔비디아", [["NVDL", 2, "GraniteShares 2x Long NVDA"], ["NVDU", 2, "Direxion Daily NVDA Bull 2X"]]],
+  [["TSLA"], "테슬라", [["TSLL", 2, "Direxion Daily TSLA Bull 2X"], ["TSLT", 2, "T-Rex 2X Long Tesla"]]],
+  [["MU"], "마이크론", [["MUU", 2, "Direxion Daily MU Bull 2X"]]],
+  [["AMD"], "AMD", [["AMUU", 2, "Direxion Daily AMD Bull 2X"]]],
+  [["AAPL"], "애플", [["AAPU", 2, "Direxion Daily AAPL Bull 2X"]]],
+  [["MSFT"], "마이크로소프트", [["MSFU", 2, "Direxion Daily MSFT Bull 2X"]]],
+  [["AMZN"], "아마존", [["AMZU", 2, "Direxion Daily AMZN Bull 2X"]]],
+  [["META"], "메타", [["METU", 2, "Direxion Daily META Bull 2X"]]],
+  [["GOOGL", "GOOG"], "알파벳", [["GGLL", 2, "Direxion Daily GOOGL Bull 2X"]]],
+  [["TSM"], "TSMC", [["TSMX", 2, "Direxion Daily TSM Bull 2X"]]],
+  [["AVGO"], "브로드컴", [["AVL", 2, "Direxion Daily AVGO Bull 2X"]]],
+  [["HOOD"], "로빈후드", [["ROBN", 2, "T-REX 2X Long HOOD"]]],
+  [["COIN"], "코인베이스", [["CONL", 2, "GraniteShares 2x Long COIN"]]],
+  [["MSTR"], "스트래티지", [["MSTU", 2, "T-Rex 2X Long MSTR"]]],
+  [["ASML"], "ASML", [["ASMG", 2, "Leverage Shares 2X Long ASML"]]],
+  [["ARM"], "ARM", [["ARMG", 2, "Leverage Shares 2X Long ARM"]]],
+  [["CRWV"], "코어위브", [["CRWU", 2, "T-REX 2X Long CRWV"]]],
+  [["BRK-B"], "버크셔", [["BRKU", 2, "Direxion Daily BRKB Bull 2X"]]],
+  [["^KS11", "069500.KS", "102110.KS"], "코스피200", [["122630.KS", 2, "KODEX 레버리지"]]],
+  [["^KQ11", "229200.KS"], "코스닥150", [["233740.KS", 2, "KODEX 코스닥150레버리지"]]],
+  [["133690.KS"], "미국나스닥100", [["418660.KS", 2, "TIGER 미국나스닥100레버리지(합성)"]]],
+];
+const isInverse = (name) => /인버스|곱버스|bear|short|-\d\s?x|inverse/i.test(String(name || ""));
+function baseLabelOf(sym) {
+  for (const t of ["us", "kr"]) for (const [, items] of FAVS[t]) for (const [s, n] of items) if (s === sym.replace(/\.(KS|KQ)$/, "")) return n;
+  return String(state.name || sym).replace(/\s*\([^)]*\)$/, "").replace(/,? (Inc|Corp|Corporation|Holdings|Ltd|Co)\.?$/i, "").slice(0, 20);
+}
+async function findLeverage() {
+  const ysym = tradeKey(); const base = ysym.replace(/\.(KS|KQ)$/, ""); const out = []; const seen = new Set();
+  const add = (sym, label, full, mult) => { if (seen.has(sym) || sym === ysym) return; seen.add(sym); out.push({ sym, label, full, mult }); };
+  const g = LEV_GROUPS.find(([bases]) => bases.includes(ysym) || bases.includes(base));
+  if (g) g[2].forEach(([s, m, full]) => add(s, /\.(KS|KQ)$/.test(s) ? full : `${g[1]} ${m}배`, full, m));
+  if (location.protocol.startsWith("http")) {
+    const kr = /\.(KS|KQ)$|^\^K/.test(ysym);
+    const qs = kr ? [`${baseLabelOf(ysym).replace(/\s+/g, "")}레버리지`] : [`${base} 2x`, `${base} bull`];
+    for (const q of qs) {
+      try {
+        const j = await (await fetch(`/api/search?q=${encodeURIComponent(q)}`)).json();
+        (j.items || []).filter(it => isLeverage(it.name, it.symbol) && !isInverse(it.name)).forEach(it => {
+          const m = (String(it.name).match(/(\d)\s?x|(\d)\s?배/i) || []).slice(1).find(Boolean) || 2;
+          add(it.symbol, it.market === "KR" ? it.name : `${baseLabelOf(ysym)} ${m}배`, it.name, +m);
+        });
+      } catch (e) {}
+    }
+  }
+  return out.slice(0, 8);
+}
+async function openLevPick() {
+  const box = $("levPick"); box.hidden = false;
+  box.innerHTML = `<p class="note" style="margin:0">${esc(baseLabelOf(tradeKey()))} 레버리지 상품을 찾는 중…</p>`;
+  const list = await findLeverage();
+  const have = new Set(myFavs().map(f => f.ysym || f.sym)); FAVS.lev.forEach(([, items]) => items.forEach(([s0]) => have.add(s0)));
+  box.innerHTML = list.length
+    ? `<p class="note" style="margin:0"><b>${esc(baseLabelOf(tradeKey()))}</b>을(를) 따라가는 레버리지 상품이에요. 추가하면 레버리지 탭에 이 상품 이름으로 들어갑니다.</p>
+       <div class="levlist">${list.map((x, i) => `<div class="levrow"><span><b>${esc(x.label)}</b> <span class="muted num">${esc(x.sym.replace(/\.(KS|KQ)$/, ""))}</span><br><span class="muted" style="font-size:12px">${esc(x.full)}</span></span>
+         <button class="btn" type="button" data-lev="${i}" ${have.has(x.sym) ? "disabled" : ""}>${have.has(x.sym) ? "이미 있음" : "추가"}</button></div>`).join("")}</div>
+       <button class="btn" type="button" id="levClose">닫기</button>`
+    : `<p class="note" style="margin:0">${esc(baseLabelOf(tradeKey()))}을(를) 따라가는 레버리지 상품을 찾지 못했어요. 위 검색칸에 '종목명 레버리지' 또는 '티커 2x'로 직접 찾아볼 수 있어요.</p><button class="btn" type="button" id="levClose">닫기</button>`;
+  box.onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.id === "levClose") { box.hidden = true; return; }
+    const x = list[+b.dataset.lev]; if (!x) return;
+    const s = loadStore(); s.favs = s.favs || [];
+    if (!s.favs.some(f => (f.ysym || f.sym) === x.sym)) s.favs.push({ sym: x.sym.replace(/\.(KS|KQ)$/, ""), ysym: x.sym, name: x.label.slice(0, 40), full: x.full, lev: true, base: tradeKey() });
+    saveStore(s); b.disabled = true; b.textContent = "추가됨"; favTab = "lev"; renderFavs(); pushPrefs();
+  };
+}
+$("favLev").addEventListener("click", openLevPick);
+
 
 
 /* ---------- boot ---------- */
