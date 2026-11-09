@@ -1603,7 +1603,8 @@ async function syncCall(action, extra = {}, code = syncCode()) {
 const levelsCache = {};
 function levelsFromLadder(r, L, hasPos) {
   return { high: r.high, asof: r.asof, items: L.filter(x => !x.done && !x.warn && (x.kind === "buy" || (hasPos && x.q > 0)))
-    .map(x => ({ key: x.code, kind: x.kind, label: x.label, price: Math.round(x.price * 10000) / 10000, q: x.q })) };
+    .map(x => ({ key: x.code, kind: x.kind, label: x.label, price: Math.round(x.price * 10000) / 10000, q: x.q,
+      ...(x.wait ? { after: new Date(Date.parse(r.asof) + Math.ceil(x.wait * 7 / 5) * 864e5).toISOString().slice(0, 10) } : {}) })) };
 }
 function rowFor(key) {
   const s = loadStore(); const p = (s.plans || {})[key]; if (!p) return null;

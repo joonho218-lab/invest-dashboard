@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
       let px: { price: number; date: string };
       if (out.prices[t.symbol]) px = out.prices[t.symbol];
       else { try { px = await lastClose(t.symbol); out.prices[t.symbol] = px; } catch (e) { out.errors.push(`${t.symbol}: ${(e as Error).message}`); continue; } }
-      const hits = items.filter((x) => typeof x.price === "number" && (x.kind === "buy" ? px.price <= x.price : x.kind === "trail" ? px.price < x.price : px.price >= x.price));
+      const hits = items.filter((x) => typeof x.price === "number" && !(x.after && px.date < x.after) && (x.kind === "buy" ? px.price <= x.price : x.kind === "trail" ? px.price < x.price : px.price >= x.price));
       const lines: string[] = [];
       for (const h of hits) {
         // 같은 단계·같은 가격은 7일에 한 번만
