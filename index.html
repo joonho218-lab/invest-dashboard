@@ -548,6 +548,12 @@ function parseNum(s) {
   if (!t || /^(null|nan|-)$/i.test(t)) return NaN;
   return Number(t);
 }
+function assertDaily(series) {
+  const n = series.length; if (n < 30) return;
+  const gaps = []; for (let i = Math.max(1, n - 300); i < n; i++) gaps.push((Date.parse(series[i][0]) - Date.parse(series[i - 1][0])) / 864e5);
+  gaps.sort((a, b) => a - b);
+  if (gaps[Math.floor(gaps.length / 2)] > 4) throw new Error("일봉이 아니라 주봉·월봉 데이터입니다. 하루 단위(일별) 종가 데이터를 넣어 주세요.");
+}
 function extractSeries(text) {
   const tt = text.trim();
   if (tt.startsWith("{")) {
@@ -560,7 +566,9 @@ function extractSeries(text) {
     const map = new Map();
     rr.timestamp.forEach((t, i) => { const v = ad[i] != null ? ad[i] : cl[i]; if (v > 0) map.set(new Date(t * 1000 + off).toISOString().slice(0, 10), Math.round(v * 10000) / 10000); });
     const series = [...map.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
-    if (series.length < 260) throw new Error(`읽은 거래일이 ${series.length}일뿐입니다. 주소에 range=max가 들어갔는지 확인해 주세요.`);
+    if (rr.meta && rr.meta.dataGranularity && rr.meta.dataGranularity !== "1d") throw new Error("Yahoo에서 일봉이 아닌 월봉 데이터가 왔습니다. 'Yahoo에서 직접 받기' 버튼으로 새 탭을 다시 열어 복사해 주세요.");
+    assertDaily(series);
+    if (series.length < 260) throw new Error(`읽은 거래일이 ${series.length}일뿐입니다. 상장 1년이 안 된 종목은 계산할 수 없습니다.`);
     const m = rr.meta || {};
     return { series, colName: "Yahoo 수정종가", symbol: m.symbol, name: m.longName || m.shortName, ccy: m.currency };
   }
@@ -584,6 +592,7 @@ function extractSeries(text) {
     if (d && isFinite(c) && c > 0) map.set(d, c);
   }
   const series = [...map.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1);
+  assertDaily(series);
   if (series.length < 260) throw new Error(`읽은 거래일이 ${series.length}일뿐입니다. 52주 고점 계산을 위해 최소 260거래일 이상이 필요합니다.`);
   return { series, colName: hasHeader ? rows[0][ci] : `열 ${ci + 1}` };
 }
@@ -1002,7 +1011,9 @@ function render() {
   const alloc = allocate(r.stages);
   const showAmt = !!(alloc && alloc.rows); $("amtH").hidden = !showAmt; $("qtyH").hidden = !showAmt;
   const pricePerShareB = toBudgetCcy(r.price);
-  $("moneyNote").innerHTML = !state.budget ? "현금을 입력하면 단계마다 얼마로 몇 주를 살지 계산합니다."
+  const isIndex = /\(\^[^)]+\)$/.test(state.name || "");
+  $("moneyNote").innerHTML = isIndex ? "지수는 직접 살 수 없어요. 낙폭과 단계는 참고용으로 보고, 실제 매수는 같은 지수를 따라가는 ETF(S&P500 → SPY, 나스닥100 → QQQ, 코스피 → KODEX 200 등)로 계획하세요."
+    : !state.budget ? "현금을 입력하면 단계마다 얼마로 몇 주를 살지 계산합니다."
     : alloc && alloc.needFx ? "달러 종목을 원화로 사려면 환율을 입력해 주세요."
     : `현재가 1주 = <b>${fmtMoneyP(r.price)}</b>. 단계 금액으로 1주를 못 사면 그 돈은 다음 단계로 넘겨서 씁니다${state.fractional ? "" : " (소수점 매수를 켜면 단계마다 조금씩 살 수 있어요)"}.`;
   $("tbody").innerHTML = r.stages.map((st, i) => `
@@ -1125,6 +1136,7 @@ async function fetchTicker(sym, displayName) {
     const j = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(j.error || `서버 응답 ${res.status}`);
     const series = j.dates.map((d, i) => [d, j.close[i]]);
+    assertDaily(series);
     if (series.length < 260) throw new Error(`${sym}: 거래일이 ${series.length}일뿐이라 52주 고점을 계산할 수 없습니다.`);
     const label = displayName ? `${displayName} (${j.symbol})` : j.name && j.name !== j.symbol ? `${j.name} (${j.symbol})` : j.symbol;
     setData(label, series, false, true, { ccy: j.currency, source: j.source });
@@ -1276,7 +1288,7 @@ $("copyOrders").addEventListener("click", () => {
   try { navigator.clipboard.writeText(text).then(() => { $("copyStatus").textContent = `${lines.length}건 복사했습니다.`; }, fallback); } catch (err) { fallback(); }
 });
 // yahoo direct link
-function yahooUrl(sym) { sym = String(sym || "").trim().toUpperCase(); if (/^\d{6}$/.test(sym)) sym += ".KS"; return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=max&interval=1d&events=div%2Csplit&includeAdjustedClose=true`; }
+function yahooUrl(sym) { sym = String(sym || "").trim().toUpperCase(); if (/^\d{6}$/.test(sym)) sym += ".KS"; return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=0&period2=${Math.floor(Date.now() / 1000)}&interval=1d&events=div%2Csplit&includeAdjustedClose=true`; }
 function updYahoo() { const v = $("ticker").value.trim(); $("yahooLink").href = v && /^[\^A-Za-z0-9.\-=]{1,20}$/.test(v) ? yahooUrl(v) : "https://finance.yahoo.com"; }
 $("ticker").addEventListener("input", updYahoo);
 $("yahooLink").addEventListener("click", () => { if (!$("ticker").value.trim()) setStatus("먼저 티커를 입력하세요.", true); $("pasteBox").hidden = false; });
@@ -1704,7 +1716,7 @@ function myFavs() { return loadStore().favs || []; }
 function renderFavs() {
   document.querySelectorAll("#favSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === favTab)));
   const cur = tradeKey().replace(/\.(KS|KQ)$/, "");
-  const chip = (sym, label, mine) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b> <span class="muted">${esc(sym)}</span></button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
+  const chip = (sym, label, mine) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}</button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
   let html = "";
   if (favTab === "mine") {
     const list = myFavs();
@@ -1738,6 +1750,8 @@ $("favAddLev").addEventListener("click", () => addFav(true));
 renderRecent();
 const qT = new URLSearchParams(location.search).get("t");
 const st0 = loadStore();
+// 예전에 월봉으로 잘못 저장된 데이터는 버린다
+if (st0.sets) { let bad = false; Object.keys(st0.sets).forEach(n => { const x = st0.sets[n]; try { assertDaily(x.d.map((d, i) => [d, x.c[i]])); } catch (e) { delete st0.sets[n]; bad = true; } }); if (bad) { if (!st0.sets[st0.last]) delete st0.last; saveStore(st0); renderRecent(); } }
 if (st0.last && st0.sets && st0.sets[st0.last]) { const s = st0.sets[st0.last]; setData(st0.last, s.d.map((d, i) => [d, s.c[i]]), false, false, { ccy: s.ccy }); }
 else setData("예시 종목", exampleSeries(), true);
 if (qT) { $("ticker").value = qT.toUpperCase(); fetchTicker(qT); }

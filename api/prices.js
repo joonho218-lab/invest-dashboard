@@ -36,10 +36,15 @@ export function parseYahoo(json) {
 }
 
 async function fromYahoo(sym, range = "max") {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=${range}&interval=1d&events=div%2Csplit&includeAdjustedClose=true`;
+  // range=max는 오래된 종목이면 월봉·분기봉으로 내려오므로, 전체 기간은 period1=0~지금으로 일봉을 요청한다
+  const span = range === "max" ? `period1=0&period2=${Math.floor(Date.now() / 1000)}` : `range=${range}`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?${span}&interval=1d&events=div%2Csplit&includeAdjustedClose=true`;
   const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" } });
   if (!res.ok) throw new Error(`yahoo ${res.status}`);
-  const out = parseYahoo(await res.json());
+  const raw = await res.json();
+  const gran = raw && raw.chart && raw.chart.result && raw.chart.result[0] && raw.chart.result[0].meta && raw.chart.result[0].meta.dataGranularity;
+  if (gran && gran !== "1d") throw new Error(`yahoo granularity ${gran}`);
+  const out = parseYahoo(raw);
   if (!out || out.dates.length === 0) throw new Error("yahoo empty");
   return { ...out, source: "Yahoo Finance (수정종가)" };
 }
