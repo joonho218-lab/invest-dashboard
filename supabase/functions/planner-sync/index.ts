@@ -58,6 +58,10 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method" }, 405);
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "bad_json" }, 400); }
+  if (body?.action === "market") { // 즐겨찾기 종목 장 마감 낙폭 (공용 데이터, 코드 필요 없음)
+    const { data } = await db.from("planner_market_cache").select("symbol,market,depths,counts,n,last_price,high52,dd,asof");
+    return json({ ok: true, rows: data || [] });
+  }
   const code = String(body?.code || "");
   if (code.length < 20 || code.length > 100) return json({ error: "bad_code" }, 400);
   const hash = await sha256(code);
@@ -78,7 +82,7 @@ Deno.serve(async (req) => {
     switch (action) {
       case "pull": {
         const { data } = await db.from("planner_tickers").select("symbol,name,ccy,plan,trades,watch,updated_at").eq("account_id", acc.id);
-        return json({ ok: true, tickers: data || [], linked: !!acc.tg_chat_id });
+        return json({ ok: true, tickers: data || [], linked: !!acc.tg_chat_id, report: acc.report !== false });
       }
       case "push": {
         const list = Array.isArray(body.tickers) ? body.tickers.slice(0, 100) : [];
@@ -117,6 +121,13 @@ Deno.serve(async (req) => {
         if (!acc.tg_chat_id) return json({ error: "not_linked" }, 400);
         const { count } = await db.from("planner_tickers").select("symbol", { count: "exact", head: true }).eq("account_id", acc.id).eq("watch", true);
         await tg("sendMessage", { chat_id: acc.tg_chat_id, text: `🔔 테스트 알림입니다.\n지금 알림을 받는 종목: ${count ?? 0}개\n장 마감 뒤 계획 가격에 닿은 종목이 있으면 이렇게 알려드려요.` });
+        return json({ ok: true });
+      }
+      case "prefs": {
+        const upd: Record<string, unknown> = {};
+        if (typeof body.report === "boolean") upd.report = body.report;
+        if (Array.isArray(body.extra)) upd.report_extra = body.extra.filter((x: any) => typeof x?.symbol === "string" && x.symbol.length <= 40).slice(0, 60).map((x: any) => ({ symbol: x.symbol, name: String(x.name || x.symbol).slice(0, 40) }));
+        if (Object.keys(upd).length) await db.from("planner_accounts").update(upd).eq("id", acc.id);
         return json({ ok: true });
       }
       case "tg_unlink": {

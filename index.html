@@ -204,6 +204,11 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 #ladder td:nth-child(3), tr.nowrow td:last-child, #tradeBody td:nth-child(2), #tradeBody td:nth-child(3) { text-align: left; }
 #posKpis .v[style] { font-size: 16px !important; }
 .alerts { display: grid; gap: 6px; }
+.activate { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; font-size: 13px; color: var(--muted); }
+.activate.on { border-style: solid; border-color: var(--up); background: var(--mark-row); color: var(--ink); }
+.ddb { font-family: var(--font-num); font-size: 11px; padding: 1px 6px; border-radius: 999px; margin-left: 4px; background: var(--soft); color: var(--muted); }
+.ddb.z { background: var(--down); color: #fff; }
+.ddb.near { color: var(--down); }
 .alert { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(150px, 1fr) minmax(0, 2fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .alert.hasdue { border-color: var(--down); background: var(--mark-row); }
 .alert .alink { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; color: var(--ink); font-size: 15px; }
@@ -216,6 +221,7 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .chip-due.b { background: var(--down); } .chip-due.s { background: var(--up); }
 .chip-wait { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--muted); }
 @media (max-width: 640px) { .alert { grid-template-columns: 1fr auto; } .alert .num, .alert .adue, .alert .anext { grid-column: 1 / 2; } }
+.tgwhat { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 14px; }
 .steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; }
 .startcmd { font-family: var(--font-num); background: var(--soft); padding: 2px 6px; border-radius: 6px; user-select: all; }
 .codebox summary { cursor: pointer; font-size: 14px; color: var(--muted); }
@@ -250,11 +256,11 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
 
   <section class="panel alerts-panel" id="alertsPanel" aria-labelledby="alertsH" hidden>
     <div class="row" style="justify-content:space-between">
-      <h2 id="alertsH">내 종목 알림 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
+      <h2 id="alertsH">진행 중인 계획 <span id="alertsSum" class="muted" style="font-weight:500;font-size:13px"></span></h2>
       <button class="btn" id="refreshAlerts" type="button">최신 가격으로 다시 확인</button>
     </div>
     <div id="alertsList" class="alerts"></div>
-    <p class="note" style="margin:0">투자금을 넣었거나 매매 기록이 있는 종목은 이 사이트를 열 때마다 최신 가격으로 계획을 다시 계산해 여기에 보여줍니다. 종목을 누르면 진행 상황으로 이동합니다.</p>
+    <p class="note" style="margin:0">매수 계획에서 '이 계획으로 진행하기'를 누른 종목만 여기에 올라오고 텔레그램 알림을 받습니다. 사이트를 열 때마다 최신 가격으로 다시 계산해요. 종목을 누르면 진행 상황으로 이동합니다.</p>
   </section>
 
   <section class="panel" aria-labelledby="tgH">
@@ -361,6 +367,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <span class="example-flag" id="exampleFlag" hidden>가상 예시 데이터 · 실제 종목 아님</span>
     </div>
     <h2 id="planTitle">—</h2>
+    <div class="activate" id="activateBox"></div>
     <div class="kpis" id="kpis"></div>
     <div class="rule" id="rule"></div>
     <div class="tablewrap">
@@ -1060,9 +1067,30 @@ function render() {
   renderChart(r, sp);
   renderCycles(r);
   savePlan();
+  renderActivate();
   updateCurrentAlert(r);
   renderFavs();
 }
+function renderActivate() {
+  const box = $("activateBox");
+  if (state.isExample || !state.series) { box.hidden = true; return; }
+  box.hidden = false;
+  const p = (loadStore().plans || {})[tradeKey()] || {};
+  const on = watchedPlans().some(([k]) => k === tradeKey());
+  box.className = "activate" + (on ? " on" : "");
+  box.innerHTML = on
+    ? `<b class="pos">✓ 이 계획으로 진행 중</b><span>${p.since ? p.since + "부터 · " : ""}단계 가격에 닿으면 텔레그램으로 알려드려요${syncCode() ? "" : " (위 '휴대폰 알림'에서 텔레그램을 켜야 받을 수 있어요)"}.</span><button class="btn" type="button" id="deactivate">그만두기</button>`
+    : `<button class="btn primary" type="button" id="activate">📌 이 계획으로 진행하기</button><span>지금은 계획만 보는 중이에요. 진행하기를 누르면 '진행 중인 계획'에 올라가고, 단계 가격에 닿을 때 텔레그램 알림이 와요.${state.budget ? "" : " 투자금을 넣으면 몇 주 살지까지 알려드려요."}</span>`;
+}
+$("activateBox").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "activate") { savePlan(true); refreshAlerts(); render(); }
+  if (b.id === "deactivate") {
+    if (!b.dataset.confirm) { b.dataset.confirm = "1"; b.textContent = "정말 그만두기"; return; }
+    const k = tradeKey(); const s = loadStore(); if (s.plans && s.plans[k]) { s.plans[k].watch = false; s.plans[k].since = null; s.plans[k].t = Date.now(); s.plans[k].sig = null; saveStore(s); queuePlanPush(k); }
+    render(); renderAlerts();
+  }
+});
 
 function renderCycles(r) {
   $("cycSummary").textContent = `과거 하락 사이클 기록 (완료 ${r.N}번${r.ongoing ? " + 진행 중 1번" : ""})`;
@@ -1453,10 +1481,11 @@ function savePlan(forceWatch) {
   if (!state.series || state.isExample) return;
   const s = loadStore(); s.plans = s.plans || {};
   const key = tradeKey(); const prev = s.plans[key] || {};
-  const settings = pickSettings(), watch = forceWatch ? true : prev.watch !== false;
+  const hasTrades = ((s.trades || {})[key] || []).length > 0;
+  const settings = pickSettings(), watch = forceWatch ? true : prev.watch === true || (prev.watch !== false && hasTrades);
   const sig = planSig(state.name, state.priceCcy, settings, watch, (s.trades || {})[key] || []);
   if (prev.sig === sig) return;
-  s.plans[key] = { name: state.name, ccy: state.priceCcy, settings, watch, t: Date.now(), sig };
+  s.plans[key] = { name: state.name, ccy: state.priceCcy, settings, watch, since: watch ? (prev.since || new Date().toISOString().slice(0, 10)) : null, t: Date.now(), sig };
   saveStore(s); queuePlanPush(key);
 }
 function restorePlan() {
@@ -1476,7 +1505,7 @@ function applySettingsToUI() {
 }
 function watchedPlans() {
   const s = loadStore(); const plans = s.plans || {}; const trades = s.trades || {};
-  return Object.entries(plans).filter(([k, p]) => p.watch !== false && ((p.settings && p.settings.budget > 0) || (trades[k] && trades[k].length)))
+  return Object.entries(plans).filter(([k, p]) => p.watch === true || (p.watch !== false && trades[k] && trades[k].length))
     .sort((a, b) => b[1].t - a[1].t);
 }
 function withState(over, fn) {
@@ -1639,16 +1668,17 @@ async function pullSync() {
   // 이 기기에만 있거나 이 기기 쪽이 더 최신인 종목은 올려 보낸다
   const ups = Object.keys(s.plans).filter(k => { const t = (j.tickers || []).find(x => x.symbol === k); return !t || (s.plans[k].t || 0) > (Date.parse(t.updated_at) || 0) + 1000; }).map(rowFor).filter(Boolean);
   if (ups.length) await syncCall("push", { tickers: ups });
-  tgLinked = !!j.linked;
+  tgLinked = !!j.linked; tgReport = j.report !== false;
   return changed;
 }
-let tgLinked = false, tgUrl = null;
+let tgLinked = false, tgUrl = null, tgReport = true;
+function pushPrefs(extra = {}) { if (!syncCode()) return Promise.resolve(); return syncCall("prefs", { extra: myFavs().map(f => ({ symbol: f.ysym || (/^[0-9][0-9A-Z]{5}$/.test(f.sym) ? f.sym + ".KS" : f.sym), name: f.name })), ...extra }).catch(() => {}); }
 function setSyncNote(t) { const el = $("syncNote"); if (el) el.textContent = t; }
 function renderTg() {
   const code = syncCode(); const box = $("tgBody");
   if (!location.protocol.startsWith("http")) { box.innerHTML = `<p class="note">텔레그램 알림은 배포된 사이트 주소에서 켤 수 있습니다.</p>`; return; }
   if (!code) {
-    box.innerHTML = `<p>장 마감 뒤 계획한 매수·매도 가격에 닿으면 텔레그램으로 알려드립니다. 미국 종목은 오전 7시대, 한국 종목은 오후 4시대에 확인합니다.</p>
+    box.innerHTML = `<p>진행 중인 계획의 단계 가격에 닿으면 텔레그램으로 알려드립니다. 장중에는 5분마다 실시간 가격을, 장이 끝나면 종가를 확인해요. 장 마감 뒤에는 즐겨찾기 종목이 고점 대비 얼마나 내려왔는지 리포트도 보내드려요.</p>
       <div class="row"><button class="btn primary" id="tgOn" type="button">텔레그램 알림 켜기</button>
       <button class="btn" id="haveCode" type="button">다른 기기에서 쓰던 코드가 있어요</button></div>
       <form class="row" id="codeForm" hidden><input id="codeIn" type="text" autocomplete="off" placeholder="연결 코드 붙여넣기" style="flex:1;min-width:200px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px"><button class="btn" type="submit">연결</button></form>`;
@@ -1657,7 +1687,12 @@ function renderTg() {
   const masked = code.slice(0, 4) + "…" + code.slice(-4);
   box.innerHTML = `
     ${tgLinked
-      ? `<p><b class="pos">✓ 텔레그램 연결됨</b> — 장 마감 뒤 계획 가격에 닿은 종목이 있으면 알려드립니다. 미국 종목 오전 7시대, 한국 종목 오후 4시대.</p>
+      ? `<p><b class="pos">✓ 텔레그램 연결됨</b></p>
+         <ul class="tgwhat">
+           <li><b>⚡ 장중 실시간 알림</b> — 진행 중인 계획의 단계 가격에 닿으면 바로 (5분마다 확인, 시세가 몇 분 늦을 수 있어요). 미국장 밤 11시 30분~새벽 6시, 국장 오전 9시~오후 3시 30분.</li>
+           <li><b>📌 장 마감 알림</b> — 종가 기준으로 한 번 더 (미국장 오전 7시대, 국장 오후 4시대).</li>
+           <li><label class="check"><input type="checkbox" id="reportOn" ${tgReport ? "checked" : ""}> <b>📊 장 마감 낙폭 리포트</b></label> — 즐겨찾기 종목이 52주 고점 대비 얼마나 내려왔는지, 몇 단계 구간인지 매일 보내드려요. '내 즐겨찾기'에 넣은 종목도 포함돼요.</li>
+         </ul>
          <div class="row"><button class="btn" id="tgTest" type="button">테스트 메시지 보내기</button><button class="btn" id="tgOff" type="button">텔레그램 연결 끊기</button></div>`
       : `<ol class="steps"><li><a class="btn primary" id="tgOpen" href="${tgUrl || "#"}" target="_blank" rel="noopener">${tgUrl ? "텔레그램 열기" : "연결 주소 만드는 중…"}</a> → 봇 화면에서 <b>시작(Start)</b>을 누르세요.</li>
          <li>이 화면으로 돌아와 <button class="btn" id="tgCheck" type="button">연결 확인</button></li></ol>
@@ -1666,7 +1701,7 @@ function renderTg() {
       <p class="note">아래 연결 코드를 다른 기기의 이 사이트에서 '다른 기기에서 쓰던 코드가 있어요'에 붙여넣으면 계획과 매매 기록이 함께 맞춰집니다. 코드는 비밀번호처럼 보관하세요.</p>
       <div class="row"><code id="codeShow">${masked}</code><button class="btn" id="copyCode" type="button">코드 복사</button><button class="btn" id="syncNow" type="button">지금 동기화</button></div>
     </details>`;
-  if (!tgLinked && !tgUrl) syncCall("tg_link").then(j => { tgUrl = j.url; renderTg(); }).catch(e => { setSyncNote(e.code === "no_token" ? "알림 봇이 아직 준비되지 않았습니다 (봇 토큰 설정 필요)." : `텔레그램 연결 주소를 만들지 못했습니다: ${e.message}`); });
+  if (!tgLinked && !tgUrl) syncCall("tg_link").then(j => { tgUrl = j.url; if (j.linked) tgLinked = true; renderTg(); }).catch(e => { setSyncNote(e.code === "no_token" ? "알림 봇이 아직 준비되지 않았습니다 (봇 토큰 설정 필요)." : `텔레그램 연결 주소를 만들지 못했습니다: ${e.message}`); });
 }
 $("tgBody").addEventListener("click", async (e) => {
   const id = e.target.closest("button, a") && e.target.closest("button, a").id;
@@ -1676,6 +1711,7 @@ $("tgBody").addEventListener("click", async (e) => {
       const code = newCode(); await syncCall("register", {}, code);
       const s = loadStore(); s.sync = { code }; saveStore(s);
       const rows = Object.keys(s.plans || {}).map(rowFor).filter(Boolean); if (rows.length) await syncCall("push", { tickers: rows });
+      await pushPrefs();
       setSyncNote("알림을 켰습니다. 이제 텔레그램을 연결하세요."); renderTg(); refreshAlerts();
     } else if (id === "haveCode") { $("codeForm").hidden = false; $("codeIn").focus(); }
     else if (id === "tgCheck") {
@@ -1693,6 +1729,11 @@ $("tgBody").addEventListener("click", async (e) => {
     } else if (id === "syncNow") { setSyncNote("동기화 중…"); const ch = await pullSync(); setSyncNote(ch ? "다른 기기의 변경 내용을 받아왔습니다." : "이미 최신입니다."); if (ch) afterPull(); }
   } catch (err) { setSyncNote(err.code === "no_token" ? "알림 봇이 아직 준비되지 않았습니다 (봇 토큰 설정 필요)." : `문제가 생겼습니다: ${err.message}`); }
 });
+$("tgBody").addEventListener("change", async (e) => {
+  if (e.target.id !== "reportOn") return;
+  tgReport = e.target.checked; await pushPrefs({ report: tgReport });
+  setSyncNote(tgReport ? "장 마감 낙폭 리포트를 받습니다." : "낙폭 리포트를 끕니다. 계획 알림은 계속 와요.");
+});
 $("tgBody").addEventListener("submit", async (e) => {
   if (e.target.id !== "codeForm") return; e.preventDefault();
   const code = $("codeIn").value.trim();
@@ -1704,6 +1745,20 @@ async function bootSync() {
   if (!syncCode()) { renderTg(); return; }
   try { const ch = await pullSync(); if (ch) afterPull(); } catch (e) { setSyncNote(`동기화하지 못했습니다: ${e.message}`); }
   renderTg();
+}
+
+/* ---------- market drawdown board (server cache, updated after each close) ---------- */
+let marketDD = {};
+function ddBadge(sym) {
+  const key = /^[0-9][0-9A-Z]{5}$/.test(sym) ? sym + ".KS" : sym;
+  const r = marketDD[key] || marketDD[sym]; if (!r || r.dd == null) return "";
+  const D = r.depths || []; const z = D.filter(d => -r.dd >= d - 1e-9).length;
+  const near = !z && D.length && (r.high52 * (1 - D[0])) / r.last_price - 1 > -0.05;
+  return `<span class="ddb ${z ? "z" : near ? "near" : ""}" title="52주 고점 대비${z ? ` · ${z}단계 구간` : near ? " · 1단계까지 5% 이내" : ""}">${(r.dd * 100).toFixed(1)}%${z ? ` · ${z}단계` : ""}</span>`;
+}
+async function loadMarketDD() {
+  if (!location.protocol.startsWith("http")) return;
+  try { const res = await fetch(SYNC_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "market" }) }); const j = await res.json(); marketDD = {}; (j.rows || []).forEach(r => marketDD[r.symbol] = { ...r, dd: Number(r.dd), high52: Number(r.high52), last_price: Number(r.last_price) }); renderFavs(); } catch (e) {}
 }
 
 /* ---------- favorites: what the channel covers most, split US / KR / leverage ---------- */
@@ -1733,17 +1788,18 @@ function myFavs() { return loadStore().favs || []; }
 function renderFavs() {
   document.querySelectorAll("#favSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === favTab)));
   const cur = tradeKey().replace(/\.(KS|KQ)$/, "");
-  const chip = (sym, label, mine) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}</button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
+  const chip = (sym, label, mine, ysym) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(sym)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}${ddBadge(ysym || sym)}</button>${mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
   let html = "";
   if (favTab === "mine") {
     const list = myFavs();
-    html = list.length ? `<div class="favgrp"><div class="favchips">${list.map(f => chip(f.sym, f.name, true)).join("")}</div></div>` : "";
+    html = list.length ? `<div class="favgrp"><div class="favchips">${list.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>` : "";
   } else {
     html = FAVS[favTab].map(([g, items]) => `<div class="favgrp"><span class="lbl">${g}</span><div class="favchips">${items.map(([s, n]) => chip(s, n, false)).join("")}</div></div>`).join("");
-    if (favTab === "lev") { const mineLev = myFavs().filter(f => f.lev); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true)).join("")}</div></div>`; }
+    if (favTab === "lev") { const mineLev = myFavs().filter(f => f.lev); if (mineLev.length) html += `<div class="favgrp"><span class="lbl">내가 추가한 레버리지</span><div class="favchips">${mineLev.map(f => chip(f.sym, f.name, true, f.ysym)).join("")}</div></div>`; }
   }
   $("favList").innerHTML = html;
-  $("favNote").textContent = favNote[favTab];
+  const asof = Object.values(marketDD).filter(x => !x.market || x.market === (favTab === "kr" ? "KR" : "US")).map(x => x.asof).filter(Boolean).sort().pop();
+  $("favNote").textContent = favNote[favTab] + (asof ? ` 숫자는 52주 고점 대비 하락폭(${asof} 종가)이고, 빨간 표시는 과거 기준 매수 단계에 들어온 종목이에요.` : "");
   const canAdd = state.series && !state.isExample;
   $("favAdd").hidden = !canAdd; $("favAddLev").hidden = !canAdd;
   if (canAdd) { const inMine = myFavs().some(f => f.sym === cur); $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} 내 즐겨찾기에 추가`; $("favAdd").disabled = inMine; $("favAddLev").hidden = inMine || !canAdd; }
@@ -1751,14 +1807,14 @@ function renderFavs() {
 $("favSeg").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; favTab = b.dataset.v; try { localStorage.setItem("bunhal-favtab", favTab); } catch (er) {} renderFavs(); });
 $("favList").addEventListener("click", (e) => {
   const d = e.target.closest("[data-del]");
-  if (d) { const s = loadStore(); s.favs = (s.favs || []).filter(f => f.sym !== d.dataset.del); saveStore(s); renderFavs(); return; }
+  if (d) { const s = loadStore(); s.favs = (s.favs || []).filter(f => f.sym !== d.dataset.del); saveStore(s); renderFavs(); pushPrefs(); return; }
   const g = e.target.closest(".favgo"); if (!g) return;
   $("ticker").value = g.dataset.sym; updYahoo(); fetchTicker(g.dataset.sym);
 });
 function addFav(lev) {
   const sym = tradeKey().replace(/\.(KS|KQ)$/, ""); const s = loadStore(); s.favs = s.favs || [];
-  if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, name: String(state.name).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
-  saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs();
+  if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, ysym: tradeKey(), name: String(state.name).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
+  saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs(); pushPrefs();
 }
 $("favAdd").addEventListener("click", () => addFav(false));
 $("favAddLev").addEventListener("click", () => addFav(true));
@@ -1776,6 +1832,7 @@ updYahoo();
 showTab(location.hash.slice(1) || "buy");
 refreshAlerts();
 bootSync();
+loadMarketDD();
 window.__planner = { analyze, extractSeries, exampleSeries, state, allocate, sellPlan };
 })();
 </script>
