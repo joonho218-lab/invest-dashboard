@@ -156,7 +156,18 @@ details summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 @media (prefers-reduced-motion: no-preference) {
   .btn, .chip, .seg button { transition: background .15s, border-color .15s; }
 }
-.field input#ticker { width: 200px; text-transform: uppercase; }
+.field input#ticker { width: min(340px, 100%); }
+.searchf { position: relative; flex: 1 1 260px; max-width: 360px; }
+.suggest { position: absolute; top: 100%; left: 0; right: 0; z-index: 20; margin-top: 4px; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14); max-height: 340px; overflow-y: auto; }
+.sg { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; width: 100%; text-align: left; border: 0; background: none; padding: 8px 12px; cursor: pointer; color: var(--ink); border-bottom: 1px solid var(--line); }
+.sg:last-child { border-bottom: 0; }
+.sg[aria-selected="true"], .sg:hover { background: var(--mark-row); }
+.sg .sn { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg .ss { font-family: var(--font-num); font-size: 12px; color: var(--muted); }
+.sg .sb { grid-row: 1 / 3; grid-column: 2; align-self: center; display: flex; gap: 4px; }
+.sg .sb span { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; }
+.sg .sb .mk-KR { color: var(--accent); font-weight: 600; } .sg .sb .mk-US { color: var(--down); font-weight: 600; }
+.sg-empty { padding: 10px 12px; font-size: 13px; color: var(--muted); }
 .field input#budget { width: 160px; }
 .check { display: inline-flex; gap: 6px; align-items: center; font-size: 14px; padding-top: 6px; }
 .quick { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -255,10 +266,11 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
   <section class="panel" aria-labelledby="dataH">
     <h2 id="dataH">1. 종목 불러오기</h2>
     <form class="row" id="fetchForm" style="align-items:flex-end">
-      <div class="field"><label for="ticker">티커 · 종목코드</label><input id="ticker" type="text" autocomplete="off" placeholder="예: QQQ, AAPL, 005930"></div>
+      <div class="field searchf"><label for="ticker">종목 검색 (이름 · 티커 · 종목코드)</label><input id="ticker" type="text" autocomplete="off" spellcheck="false" placeholder="예: 삼성전자, 엔비디아, QQQ, 005930" role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+        <div class="suggest" id="suggest" role="listbox" hidden></div></div>
       <button class="btn primary" id="fetchBtn" type="submit">가격 불러오기</button>
     </form>
-    <p class="note" style="margin:0">미국은 티커(QQQ, ^GSPC), 한국은 6자리 종목코드(005930)를 넣으세요. 전체 기간 일봉 수정종가를 자동으로 가져옵니다.</p>
+    <p class="note" style="margin:0">한글 이름(삼성전자, 엔비디아), 영문 이름(nvidia), 티커(QQQ, ^GSPC), 6자리 종목코드(005930) 모두 검색됩니다. 목록에서 고르면 전체 기간 일봉 수정종가를 가져옵니다.</p>
     <div class="favbox">
       <div class="row" style="justify-content:space-between">
         <div class="seg" id="favSeg" role="group" aria-label="즐겨찾기 분류">
@@ -1104,7 +1116,7 @@ function loadText(text, fname) {
 }
 function readFile(f) { const fr = new FileReader(); fr.onload = () => loadText(String(fr.result), f.name); fr.onerror = () => setStatus("파일을 읽지 못했습니다.", true); fr.readAsText(f); }
 
-async function fetchTicker(sym) {
+async function fetchTicker(sym, displayName) {
   sym = String(sym || "").trim().toUpperCase(); if (!sym) return;
   setStatus(`${sym} 가격을 불러오는 중…`);
   $("fetchBtn").disabled = true;
@@ -1114,7 +1126,7 @@ async function fetchTicker(sym) {
     if (!res.ok) throw new Error(j.error || `서버 응답 ${res.status}`);
     const series = j.dates.map((d, i) => [d, j.close[i]]);
     if (series.length < 260) throw new Error(`${sym}: 거래일이 ${series.length}일뿐이라 52주 고점을 계산할 수 없습니다.`);
-    const label = j.name && j.name !== j.symbol ? `${j.name} (${j.symbol})` : j.symbol;
+    const label = displayName ? `${displayName} (${j.symbol})` : j.name && j.name !== j.symbol ? `${j.name} (${j.symbol})` : j.symbol;
     setData(label, series, false, true, { ccy: j.currency, source: j.source });
     setStatus($("status").textContent + ` · 출처 ${j.source}`);
     $("ticker").value = sym; updYahoo();
@@ -1131,7 +1143,55 @@ async function loadFx() {
     if (v > 100 && !state.fx) { state.fx = Math.round(v * 10) / 10; $("fx").value = state.fx; $("fx").title = `${j.dates[j.dates.length - 1]} 기준 자동 입력`; render(); }
   } catch (e) {}
 }
-$("fetchForm").addEventListener("submit", (e) => { e.preventDefault(); fetchTicker($("ticker").value); });
+/* ---------- search box ---------- */
+let sgItems = [], sgIdx = -1, sgTimer = null, sgSeq = 0;
+const looksLikeSymbol = (v) => /^[\^A-Za-z0-9.\-=]{1,20}$/.test(v) && !/[가-힣]/.test(v);
+function showSuggest(items, msg) {
+  sgItems = items; sgIdx = items.length ? 0 : -1;
+  const box = $("suggest");
+  if (!items.length && !msg) { box.hidden = true; $("ticker").setAttribute("aria-expanded", "false"); return; }
+  box.innerHTML = items.length ? items.map((it, i) => `<button type="button" class="sg" role="option" id="sg${i}" data-i="${i}" aria-selected="${i === sgIdx}">
+      <span class="sn">${esc(it.name)}</span><span class="ss">${esc(it.symbol.replace(/\.(KS|KQ)$/, ""))}${it.exchange ? " · " + esc(it.exchange) : ""}</span>
+      <span class="sb"><span class="mk-${it.market}">${it.market === "KR" ? "한국" : "미국"}</span><span>${esc(it.type)}</span></span></button>`).join("")
+    : `<div class="sg-empty">${esc(msg)}</div>`;
+  box.hidden = false; $("ticker").setAttribute("aria-expanded", "true");
+}
+function hlSuggest(i) { sgIdx = i; document.querySelectorAll("#suggest .sg").forEach((b, k) => b.setAttribute("aria-selected", String(k === i))); const el = $("sg" + i); if (el) el.scrollIntoView({ block: "nearest" }); }
+async function runSearch(q) {
+  const seq = ++sgSeq;
+  if (!location.protocol.startsWith("http")) return [];
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`); const j = await res.json();
+    if (seq !== sgSeq) return null;
+    return j.items || [];
+  } catch (e) { return seq === sgSeq ? [] : null; }
+}
+function pickSuggest(i) {
+  const it = sgItems[i]; if (!it) return;
+  showSuggest([]); const short = it.symbol.replace(/\.(KS|KQ)$/, "");
+  $("ticker").value = short; updYahoo(); fetchTicker(it.symbol, it.name);
+}
+$("ticker").addEventListener("input", () => {
+  const q = $("ticker").value.trim(); clearTimeout(sgTimer);
+  if (!q) { showSuggest([]); return; }
+  sgTimer = setTimeout(async () => { const items = await runSearch(q); if (items === null) return; showSuggest(items, items.length ? "" : (location.protocol.startsWith("http") ? "검색 결과가 없습니다. 티커나 6자리 코드로 넣어 보세요." : "")); }, 250);
+});
+$("ticker").addEventListener("keydown", (e) => {
+  if ($("suggest").hidden || !sgItems.length) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); hlSuggest((sgIdx + 1) % sgItems.length); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); hlSuggest((sgIdx - 1 + sgItems.length) % sgItems.length); }
+  else if (e.key === "Escape") { showSuggest([]); }
+});
+$("ticker").addEventListener("blur", () => setTimeout(() => showSuggest([]), 180));
+$("suggest").addEventListener("mousedown", (e) => e.preventDefault());
+$("suggest").addEventListener("click", (e) => { const b = e.target.closest(".sg"); if (b) pickSuggest(+b.dataset.i); });
+$("fetchForm").addEventListener("submit", async (e) => {
+  e.preventDefault(); const q = $("ticker").value.trim(); if (!q) return;
+  if (!$("suggest").hidden && sgItems.length && sgIdx >= 0) { pickSuggest(sgIdx); return; }
+  if (looksLikeSymbol(q)) { showSuggest([]); fetchTicker(q); return; }
+  setStatus(`'${q}' 검색 중…`); const items = await runSearch(q);
+  if (items && items.length) { sgItems = items; pickSuggest(0); } else setStatus(`'${q}'에 맞는 종목을 찾지 못했습니다. 티커나 6자리 종목코드로 넣어 보세요.`, true);
+});
 $("pickFile").addEventListener("click", () => $("file").click());
 $("file").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) readFile(f); e.target.value = ""; });
 const drop = $("drop");
@@ -1217,7 +1277,7 @@ $("copyOrders").addEventListener("click", () => {
 });
 // yahoo direct link
 function yahooUrl(sym) { sym = String(sym || "").trim().toUpperCase(); if (/^\d{6}$/.test(sym)) sym += ".KS"; return `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=max&interval=1d&events=div%2Csplit&includeAdjustedClose=true`; }
-function updYahoo() { const v = $("ticker").value.trim(); $("yahooLink").href = v ? yahooUrl(v) : "https://finance.yahoo.com"; }
+function updYahoo() { const v = $("ticker").value.trim(); $("yahooLink").href = v && /^[\^A-Za-z0-9.\-=]{1,20}$/.test(v) ? yahooUrl(v) : "https://finance.yahoo.com"; }
 $("ticker").addEventListener("input", updYahoo);
 $("yahooLink").addEventListener("click", () => { if (!$("ticker").value.trim()) setStatus("먼저 티커를 입력하세요.", true); $("pasteBox").hidden = false; });
 buildSellLevels();
