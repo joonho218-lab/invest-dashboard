@@ -712,9 +712,9 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <p class="note" id="cxSymMsg" style="margin:0" hidden></p>
       <p class="note" id="cxNow" style="margin:0"></p>
       <div class="seg" id="cxMode" role="group" aria-label="계산 방식" style="justify-self:start;flex-wrap:wrap;max-width:100%">
-        <button type="button" data-v="sim" aria-pressed="true">나눠 사보기</button>
+        <button type="button" data-v="cash" aria-pressed="true">💰 얼마어치 사면 평단은?</button>
+        <button type="button" data-v="sim" aria-pressed="false">나눠 사보기</button>
         <button type="button" data-v="target" aria-pressed="false">목표 평단 맞추기</button>
-        <button type="button" data-v="cash" aria-pressed="false">이 돈으로 사면</button>
       </div>
       <div id="cxPane"></div>
       <div class="cx-kpi" id="cxKpi"></div>
@@ -2613,7 +2613,7 @@ $("fdList").addEventListener("click", async e => {
 });
 
 /* ---------- 물타기 계산기 ---------- */
-const calc = { key: "", qty: null, avg: null, price: null, ccy: "KRW", mode: "sim", rows: [{ p: null, q: null }], target: null, tp: null, cash: null, cashCcy: "KRW", high: null, levels: null };
+const calc = { key: "", qty: null, avg: null, price: null, ccy: "KRW", mode: "cash", rows: [{ p: null, q: null }], target: null, tp: null, cash: null, cashCcy: "KRW", high: null, levels: null };
 try { const s = JSON.parse(localStorage.getItem("bunhal-calc") || "null"); if (s) Object.assign(calc, s); } catch (e) {}
 const saveCalc = () => { try { localStorage.setItem("bunhal-calc", JSON.stringify(calc)); } catch (e) {} };
 const cxFx = () => holdFx || state.fx || null;
@@ -2699,7 +2699,10 @@ function renderCalc() {
     pane = `<div class="cx-grid"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="1,000,000"></div>
       <div class="field"><span class="lbl">돈 단위</span><div class="seg" id="cxCashCcy"><button type="button" data-v="KRW" aria-pressed="${calc.cashCcy === "KRW"}">원</button><button type="button" data-v="USD" aria-pressed="${calc.cashCcy === "USD"}">달러</button></div></div>
       <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.tp)}"></div></div>
-      ${M > 0 && BP > 0 ? `<p style="margin:0">→ ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b> 살 수 있어요${calc.cashCcy !== calc.ccy && fx ? ` <span class="muted">(환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원)</span>` : ""}. 남는 돈 ${cxMoney(inCcy - q * BP)}</p>` : ""}`;
+      <div class="cx-btns">${(calc.cashCcy === "USD" ? [500, 1000, 3000, 5000, 10000] : [500000, 1000000, 3000000, 5000000, 10000000]).map(v => `<button type="button" class="btn" data-cx-cash="${v}">${calc.cashCcy === "USD" ? "$" + v.toLocaleString("en-US") : (v / 1e4).toLocaleString("ko-KR") + "만"}</button>`).join("")}</div>
+      ${M > 0 && BP > 0 ? (() => { const nq = (Q || 0) + q, na = nq > 0 ? ((Q || 0) * (A || 0) + q * BP) / nq : null;
+        return `<p style="margin:0;font-size:16px">→ ${calc.cashCcy === "USD" ? "$" + M.toLocaleString("en-US") : Math.round(M).toLocaleString("ko-KR") + "원"}어치면 ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b>${q > 0 && Q > 0 && A > 0 ? ` · 평단 <b>${cxP(A)} → ${cxP(na)}</b> <span class="${na < A ? "pos" : "neg"}">(${fmtPct(na / A - 1, true)})</span>` : q > 0 ? "" : " — 1주도 못 사요"}</p>
+        <p class="note" style="margin:0">남는 돈 ${cxMoney(inCcy - q * BP)}${calc.cashCcy !== calc.ccy && fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}${!(Q > 0 && A > 0) ? " · 위에 보유 수량과 평단을 넣으면 새 평단이 나와요" : ""}</p>`; })() : ""}`;
     if (q > 0) adds = [{ p: BP, q }];
   }
   $("cxPane").innerHTML = pane;
@@ -2764,6 +2767,7 @@ $("cxPane").addEventListener("input", e => {
 $("cxPane").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return; const P = calc.price;
   if (b.closest("#cxCashCcy")) { calc.cashCcy = b.dataset.v; }
+  else if (b.dataset.cxCash) calc.cash = Number(b.dataset.cxCash);
   else if (b.dataset.cxDel != null) calc.rows.splice(+b.dataset.cxDel, 1);
   else if (b.dataset.cx === "add") { const lp = Number(calc.rows[calc.rows.length - 1].p) || P; calc.rows.push({ p: lp ? Math.round(lp * 0.95 * 100) / 100 : null, q: calc.rows[calc.rows.length - 1].q }); }
   else if (b.dataset.cx === "steps") calc.rows = [-0.05, -0.1, -0.15].map(d => ({ p: Math.round(P * (1 + d) * 100) / 100, q: null }));
