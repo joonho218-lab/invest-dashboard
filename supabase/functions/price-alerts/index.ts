@@ -56,6 +56,74 @@ async function handleCallback(cq: any) {
   const nk = kb.map((r: any[]) => r.map((b) => b.callback_data === data ? { text: `✔️ 기록됨 · ${String(b.text).replace(/^✅\s*/, "")}`, callback_data: "x" } : b));
   await tg("editMessageReplyMarkup", { chat_id: chat, message_id: cq.message?.message_id, reply_markup: { inline_keyboard: nk } }).catch(() => {});
 }
+// ---- 운영자 매매 기록: 봇에게 '전달'된 글·사진을 저장 ----
+const FEED_STOP = new Set(["ETF", "MDD", "RSI", "BB", "USD", "KRW", "CAGR", "EPS", "PER", "PBR", "ROE", "ISA", "IRP", "HBM", "CEO", "CFO", "FOMC", "CPI", "PCE", "GDP", "YOY", "QOQ", "KPI", "ARK", "NH", "KB", "AI", "FSD", "EV", "API", "APP", "IPO", "GPU", "CPU", "TSMC", "DRAM", "NAND", "SNS", "PDF", "JPG", "PNG", "THE", "AND", "FOR", "NEW", "CNBC", "WSJ", "FT", "FED", "ECB", "BOJ", "PMI", "ISM", "WTI", "VIX", "OTC", "ADR", "SEC", "NYSE", "KOSPI", "KRX", "TIGER", "KODEX", "ACE", "SOL", "RISE", "PLUS", "DAILY", "DIREXION", "PROSHARES", "BULL", "BEAR", "TRADR", "FCF", "RPO", "SCA", "GAAP", "OPM", "ASP", "TAM", "SAM", "CAPEX", "ROIC", "EBIT", "EBITDA", "ARPU", "MAU", "DAU", "ESG", "LLM", "AGI", "MSCI", "OPEC", "IMF", "DCF", "SOFR", "CDS", "MMF", "ATM", "OCO"]);
+function parseFeed(raw: string) {
+  const s = (raw || "").replace(/\s+/g, " ");
+  const buy = /(매수|샀|담았|늘렸|진입|추가 ?매입|모아가|매입)/.test(s);
+  const sell = /(매도|팔았|정리|익절|손절|줄였|차익 ?실현|청산)/.test(s);
+  // 본인 매매: '매수했습니다/정리하고/늘렸습니다' 같은 완료형 + (1인칭·금액·[날짜 종목 $가격] 머리말) 중 하나
+  const done = /(매수|매도|정리|늘렸|줄였|담았|샀|팔았|진입|익절|손절|매입|스위칭|갈아탔)[^.\n]{0,14}(했습니다|했어요|했고|했다|했네요|하고,|습니다|완료)|(샀|팔았|늘렸|줄였|담았|정리했)/.test(s);
+  const self = /(저는|제가|저도|제 계좌|어제도|오늘도|이번에|이틀 ?전)/.test(s) || /^\s*\[\d{2}\.\d{2}\.\d{2}/.test(raw || "") || /[\d,.]+\s?(억|천만|만)\s?원[^.\n]{0,10}(매수|매도|늘렸|정리|담)/.test(s);
+  const news = /^\s*(🔍|📖|📌|\[|미국 증시|다우|공포지수|금일)/.test(raw || "") && !/^\s*\[\d{2}\.\d{2}\.\d{2}/.test(raw || "");
+  const mine = done && self && !news;
+  const tick = [...new Set([
+    ...[...s.matchAll(/\$([A-Z]{1,5})\b/g)].map((m) => m[1]),
+    ...[...s.matchAll(/(?:^|[^A-Za-z])([A-Z]{3,5})(?=[^A-Za-z]|$)/g)].map((m) => m[1]).filter((x) => !FEED_STOP.has(x)),
+  ])].slice(0, 6);
+  const pm = s.match(/\$\s?(\d{1,6}(?:\.\d+)?)/);
+  let amount: number | null = null;
+  const am = s.match(/약?\s?([\d,.]+)\s?(억|천만|만)\s?원/);
+  if (am) { const v = Number(am[1].replace(/,/g, "")); amount = v * (am[2] === "억" ? 1e8 : am[2] === "천만" ? 1e7 : 1e4); }
+  const action = buy && sell ? "switch" : buy ? "buy" : sell ? "sell" : null;
+  // 다른 투자자·기관 매매 뉴스는 운영자 본인 매매가 아님
+  const others = /(ARK|캐시 ?우드|버크셔|헤지펀드|연기금|국민연금|외국인|기관 투자|모건스탠리|골드만|JP ?모건|블랙록|웅줍|유튜버)/.test(s) && !/(저는|제가|저도|제 계좌)/.test(s);
+  return { kind: mine && action && !others ? "trade" : "note", parsed: { action, tickers: tick, price: pm ? Number(pm[1]) : null, amount } };
+}
+const won = (v: number) => v >= 1e8 ? `${(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억원` : `${Math.round(v / 1e4).toLocaleString("ko-KR")}만원`;
+function feedSummary(kind: string, p: any) {
+  if (kind !== "trade") return "📝 메모로 저장 (매매 내용은 못 찾았어요)";
+  const act = p.action === "buy" ? "매수" : p.action === "sell" ? "매도" : "갈아타기(매도→매수)";
+  return `🔁 매매 기록: ${p.tickers?.length ? p.tickers.join("·") + " " : ""}${act}${p.price ? ` · $${p.price}` : ""}${p.amount ? ` · 약 ${won(p.amount)}` : ""}`;
+}
+async function tgFile(fileId: string): Promise<Uint8Array | null> {
+  try {
+    const f = await tg("getFile", { file_id: fileId }) as any;
+    if (!f?.file_path) return null;
+    const r = await fetch(`https://api.telegram.org/file/bot${TOKEN}/${f.file_path}`);
+    return r.ok ? new Uint8Array(await r.arrayBuffer()) : null;
+  } catch { return null; }
+}
+async function handleFeed(msg: any) {
+  const chat = msg.chat?.id; if (!chat) return;
+  const { data: acc } = await db.from("planner_accounts").select("id").eq("tg_chat_id", chat).maybeSingle();
+  if (!acc) return;
+  const text: string = msg.text || msg.caption || "";
+  const fo = msg.forward_origin || null;
+  const origin = fo?.chat?.title || fo?.sender_user?.first_name || fo?.sender_user_name || msg.forward_from_chat?.title || (fo ? "전달된 글" : "직접 입력");
+  const odate = fo?.date || msg.forward_date || msg.date;
+  const chId = fo?.chat?.id ?? msg.forward_from_chat?.id; const chMsg = fo?.message_id ?? msg.forward_from_message_id;
+  const link = chId && chMsg ? (fo?.chat?.username ? `https://t.me/${fo.chat.username}/${chMsg}` : `https://t.me/c/${String(chId).replace(/^-100/, "")}/${chMsg}`) : null;
+  const photos: string[] = [];
+  if (Array.isArray(msg.photo) && msg.photo.length) {
+    const big = msg.photo[msg.photo.length - 1];
+    const bytes = await tgFile(big.file_id);
+    if (bytes) {
+      const path = `${acc.id}/${msg.message_id}-${big.file_unique_id}.jpg`;
+      const { error } = await db.storage.from("planner-feed").upload(path, bytes, { contentType: "image/jpeg", upsert: true });
+      if (!error) photos.push(path);
+    }
+  }
+  if (!text && !photos.length) return;
+  const { kind, parsed } = parseFeed(text);
+  const group = msg.media_group_id ? String(msg.media_group_id) : null;
+  let seenGroup = false;
+  if (group) { const { count } = await db.from("planner_feed").select("id", { count: "exact", head: true }).eq("account_id", acc.id).eq("media_group", group); seenGroup = (count || 0) > 0; }
+  await db.from("planner_feed").upsert({ account_id: acc.id, tg_message_id: msg.message_id, media_group: group, origin, origin_link: link, origin_date: new Date(odate * 1000).toISOString(), text: text || null, kind, parsed, photos }, { onConflict: "account_id,tg_message_id", ignoreDuplicates: true });
+  if (seenGroup && !text) return; // 앨범의 나머지 사진에는 답장하지 않음
+  const when = new Date(odate * 1000 + 9 * 3600e3).toISOString().slice(5, 16).replace("T", " ");
+  await tg("sendMessage", { chat_id: chat, reply_to_message_id: msg.message_id, text: `📥 저장했어요 · ${origin} ${when}\n${text ? feedSummary(kind, parsed) : "🖼 사진 저장 (체결 화면이면 사이트에서 확인하세요)"}\n사이트 메뉴 '📮 운영자 매매'에서 모아볼 수 있어요.` }).catch(() => {});
+}
 async function processUpdates() {
   const { data: off } = await db.from("app_secrets").select("value").eq("name", "tg_offset").single();
   const offset = Number(off?.value || 0);
@@ -73,6 +141,7 @@ async function processUpdates() {
         await tg("sendMessage", { chat_id: chat, text: "✅ 분할매수 플래너와 연결됐습니다." });
       }
     }
+    else if (chat && !text.startsWith("/")) { try { await handleFeed(u.message); } catch (_) { /* ignore */ } }
   }
   if (next !== offset) await db.from("app_secrets").update({ value: String(next) }).eq("name", "tg_offset");
 }
@@ -168,6 +237,7 @@ Deno.serve(async (req) => {
   if (!sec || req.headers.get("x-cron-secret") !== sec.value) return json({ error: "forbidden" }, 403);
   let body: any = {}; try { body = await req.json(); } catch { /* empty */ }
   if (typeof body?.probe === "string") { try { return json({ probe: body.probe, ...(await lastClose(body.probe)) }); } catch (e) { return json({ probe: body.probe, error: (e as Error).message }, 502); } }
+  if (typeof body?.parse === "string") return json(parseFeed(body.parse)); // 파서 점검용
   const mode = body.mode === "live" ? "live" : body.mode === "warm" ? "warm" : body.mode === "updates" ? "updates" : "close";
   const market: string | null = body.market === "US" || body.market === "KR" ? body.market : null;
   const dry = !!body.dry;

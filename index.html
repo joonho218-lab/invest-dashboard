@@ -104,9 +104,11 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 .view { display: grid; gap: 20px; min-width: 0; }
 .view > * { min-width: 0; }
 /* 상단 메뉴 */
+.appnav { overflow-x: auto; scrollbar-width: none; }
 .appnav { position: sticky; top: 0; z-index: 20; display: flex; gap: 4px; padding: 6px; margin: -6px -6px 0; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-radius: 0 0 14px 14px; }
 .appnav a { flex: 0 0 auto; text-decoration: none; color: var(--muted); font-weight: 600; font-size: 14px; padding: 8px 14px; border-radius: 999px; border: 1px solid transparent; }
 .appnav a:hover { color: var(--ink); }
+@media (max-width: 480px) { .appnav a { padding: 7px 11px; font-size: 13px; } .appnav .lg { display: none; } }
 .appnav a[aria-current="page"] { background: var(--ink); color: var(--paper); }
 /* 연도별 최대낙폭 */
 .ysum { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 12px; }
@@ -123,6 +125,31 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
   .ysum .v { font-size: 16px; } .ysum > div { padding: 10px; }
   .yrt { min-width: 0; font-size: 12px; } .yrt td, .yrt th { padding: 6px 4px; } .yrt .hm { display: none; } .ybar i { display: none; }
 }
+/* 운영자 매매 */
+.fd-how { display: grid; gap: 6px; background: var(--soft); border-radius: 12px; padding: 14px 16px; font-size: 14px; }
+.fd-how ol { margin: 0; padding-left: 20px; display: grid; gap: 3px; }
+.fd-list { display: grid; gap: 12px; }
+.fd-item { border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px; background: var(--paper); }
+.fd-item.trade { border-left: 4px solid var(--accent); }
+.fd-top { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.fd-top b { color: var(--ink); font-size: 14px; }
+.fd-top .sp { flex: 1; }
+.fd-badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--soft); color: var(--ink); }
+.fd-badge.trade { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.fd-sum { display: flex; flex-wrap: wrap; gap: 6px; }
+.fd-chip { font-size: 13px; padding: 3px 10px; border-radius: 8px; border: 1px solid var(--line); font-family: var(--font-num); }
+.fd-chip.buy { color: var(--down); border-color: currentColor; } .fd-chip.sell { color: var(--up); border-color: currentColor; }
+.fd-fills { width: 100%; min-width: 0; font-size: 13px; }
+.fd-fills td { padding: 5px 6px; white-space: normal; }
+.fd-fills td.sd { font-weight: 700; white-space: nowrap; }
+.fd-fills td:nth-child(2) { text-align: left; }
+.fd-text { font-size: 14px; white-space: pre-wrap; line-height: 1.6; margin: 0; }
+.fd-text.clip { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.fd-more { border: 0; background: none; color: var(--accent); padding: 0; cursor: pointer; font: inherit; font-size: 13px; justify-self: start; }
+.fd-photos { display: flex; gap: 8px; overflow-x: auto; }
+.fd-photos a img { height: 120px; width: auto; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.fd-del { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; padding: 0 4px; }
+.fd-del:hover { color: var(--down); }
 /* 자산 성적표 */
 .rc-head { display: grid; gap: 6px; }
 .rc-kick { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
@@ -342,8 +369,9 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
 
 <div class="wrap">
   <nav class="appnav" aria-label="화면 전환">
-    <a href="#buy" data-view="planner" aria-current="page">📈 분할매수 플래너</a>
-    <a href="#report" data-view="report">📊 주요 자산 성적표</a>
+    <a href="#buy" data-view="planner" aria-current="page">📈 <span class="lg">분할매수 </span>플래너</a>
+    <a href="#report" data-view="report">📊 <span class="lg">주요 자산 </span>성적표</a>
+    <a href="#feed" data-view="feed">📮 운영자 매매</a>
   </nav>
   <div class="view" id="viewPlanner">
   <header class="top">
@@ -617,6 +645,33 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     </div>
     <p class="note">배당·분할이 반영된 <b>수정종가</b> 열이 있으면 그 열을 우선 사용합니다. 최소 1년(약 260거래일) 이상, 통계를 위해서는 10년 이상을 권합니다.</p>
   </section>
+  </div>
+
+  <div class="view" id="viewFeed" hidden>
+    <section class="card" aria-labelledby="fdTitle">
+      <div class="rc-head">
+        <div class="rc-kick"><span>운영자 매매 기록</span><span id="fdCount"></span></div>
+        <h1 class="rc-title" id="fdTitle">채널 운영자가 사고판 기록</h1>
+      </div>
+      <div class="fd-how">
+        <b>📲 텔레그램에서 운영자 글을 내 봇에게 '전달'하면 여기에 쌓여요</b>
+        <ol>
+          <li>채널에서 운영자 매매 글(또는 체결 화면 사진)을 길게 누르기 → <b>전달</b></li>
+          <li>받는 사람으로 <b>내 알림 봇</b> 선택 → 보내기</li>
+          <li>봇이 "📥 저장했어요 · 종목 · 매수/매도 · 가격 · 금액"으로 답장하면 끝. 1분 안에 여기에 보여요.</li>
+        </ol>
+        <span class="note" style="margin:0">텔레그램 아이디나 비밀번호는 필요 없어요. 이미 연결해 둔 봇이 내 계정을 알아봐요. 글은 자동으로 '매매'와 '메모'로 나뉘고, 사진은 그대로 저장돼요.</span>
+      </div>
+      <div class="rc-ctl">
+        <div class="seg" id="fdFilter" role="group" aria-label="보기">
+          <button type="button" data-v="all" aria-pressed="true">전체</button>
+          <button type="button" data-v="trade" aria-pressed="false">매매만</button>
+        </div>
+        <button class="btn" type="button" id="fdReload">새로 불러오기</button>
+      </div>
+      <div class="fd-list" id="fdList" aria-live="polite"></div>
+      <p class="note" style="margin:0;font-size:12px">운영자 본인이 공유한 매매 기록을 모아둔 것이며 매수·매도 권유가 아닙니다. 자동 분류라 틀릴 수 있어요. 틀린 건 × 로 지우면 돼요.</p>
+    </section>
   </div>
 
   <div class="view" id="viewReport" hidden>
@@ -2446,15 +2501,74 @@ $("rcSet").addEventListener("click", e => { const b = e.target.closest("button")
 $("rcSort").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; rcSort = b.dataset.v; try { localStorage.setItem("bunhal-rcsort", rcSort); } catch (er) {} renderReport(); });
 $("rcList").addEventListener("click", e => { const b = e.target.closest("[data-rc]"); if (!b) return; location.hash = "buy"; window.scrollTo(0, 0); fetchTicker(b.dataset.rc); });
 
+/* ---------- 운영자 매매 기록 ---------- */
+let fdRows = null, fdUrls = {}, fdFilter = "all", fdBusy = false; const fdOpen = new Set();
+try { fdFilter = localStorage.getItem("bunhal-fdfilter") || "all"; } catch (e) {}
+const fdWon = v => v >= 1e8 ? `${(v / 1e8).toFixed(v % 1e8 ? 1 : 0)}억원` : `${Math.round(v / 1e4).toLocaleString("ko-KR")}만원`;
+const fdDate = iso => { if (!iso) return ""; const d = new Date(Date.parse(iso) + 9 * 3600e3); const w = "일월화수목금토"[d.getUTCDay()]; return `${d.toISOString().slice(0, 10).replace(/-/g, ".")} (${w}) ${d.toISOString().slice(11, 16)}`; };
+async function loadFeed() {
+  if (fdBusy) return; fdBusy = true;
+  if (!syncCode()) { $("fdList").innerHTML = `<p class="note">먼저 분할매수 플래너 화면의 <b>휴대폰 알림 (텔레그램)</b>에서 봇을 연결해 주세요. 연결된 봇에게 글을 전달하면 여기에 모여요.</p>`; fdBusy = false; return; }
+  if (!fdRows) $("fdList").innerHTML = `<p class="note">불러오는 중…</p>`;
+  try { const j = await syncCall("feed"); fdRows = j.rows || []; fdUrls = j.urls || {}; }
+  catch (e) { $("fdList").innerHTML = `<p class="note">불러오지 못했어요: ${esc(e.message)}</p>`; fdBusy = false; return; }
+  fdBusy = false; renderFeed();
+}
+function renderFeed() {
+  document.querySelectorAll("#fdFilter button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === fdFilter)));
+  if (!fdRows) return;
+  // 앨범(사진 여러 장)은 한 카드로 묶기
+  const groups = []; const byG = {};
+  fdRows.forEach(r => { const k = r.media_group ? "g" + r.media_group : "i" + r.id; if (!byG[k]) { byG[k] = { key: k, rows: [] }; groups.push(byG[k]); } byG[k].rows.push(r); });
+  const items = groups.map(g => {
+    const rs = g.rows.slice().sort((a, b) => a.id - b.id); const main = rs.find(r => r.text) || rs[0];
+    return { ...main, ids: rs.map(r => r.id), photos: rs.flatMap(r => r.photos || []), kind: rs.some(r => r.kind === "trade") ? "trade" : "note" };
+  }).filter(x => fdFilter === "all" || x.kind === "trade");
+  const nT = groups.filter(g => g.rows.some(r => r.kind === "trade")).length;
+  $("fdCount").textContent = `매매 ${nT}건 · 전체 ${groups.length}건`;
+  if (!items.length) { $("fdList").innerHTML = `<p class="note">${fdRows.length ? "매매로 분류된 글이 없어요." : "아직 저장된 글이 없어요. 위 방법대로 운영자 글을 봇에게 전달해 보세요."}</p>`; return; }
+  const actTxt = a => a === "buy" ? "매수" : a === "sell" ? "매도" : a === "switch" ? "갈아타기" : "";
+  $("fdList").innerHTML = items.map(x => {
+    const p = x.parsed || {}; const fills = Array.isArray(p.fills) ? p.fills : [];
+    const chips = [];
+    if (x.kind === "trade" && p.action) chips.push(`<span class="fd-chip ${p.action === "sell" ? "sell" : p.action === "buy" ? "buy" : ""}">${actTxt(p.action)}</span>`);
+    (p.tickers || []).forEach(t => chips.push(`<span class="fd-chip">${esc(t)}</span>`));
+    if (p.price) chips.push(`<span class="fd-chip">$${p.price}</span>`);
+    if (p.amount) chips.push(`<span class="fd-chip">약 ${fdWon(p.amount)}</span>`);
+    if (p.stage) chips.push(`<span class="fd-chip">${esc(p.stage)}</span>`);
+    if (p.account) chips.push(`<span class="fd-chip">${esc(p.account)}</span>`);
+    const fillRows = fills.map(f => `<tr><td class="sd ${f.side === "buy" ? "neg" : "pos"}">${f.side === "buy" ? "매수" : "매도"}</td><td>${esc(f.name || "")}${f.note ? `<br><span class="muted" style="font-size:12px">${esc(f.note)}</span>` : ""}</td><td class="n" style="white-space:nowrap">${f.qty ? f.qty.toLocaleString("ko-KR") + "주" : ""}</td><td class="n" style="white-space:nowrap">${f.price ? (f.ccy === "USD" ? "$" + f.price : f.price.toLocaleString("ko-KR") + "원") : f.amount ? f.amount.toLocaleString("ko-KR") + "원" : ""}</td></tr>`).join("");
+    const open = fdOpen.has(x.id); const long = (x.text || "").split("\n").length > 3 || (x.text || "").length > 160;
+    const photos = x.photos.filter(ph => fdUrls[ph]).map(ph => `<a href="${esc(fdUrls[ph])}" target="_blank" rel="noopener"><img src="${esc(fdUrls[ph])}" alt="전달한 사진" loading="lazy"></a>`).join("");
+    return `<article class="fd-item ${x.kind}">
+      <div class="fd-top"><span class="fd-badge ${x.kind}">${x.kind === "trade" ? "🔁 매매" : "📝 메모"}</span><b>${fdDate(x.origin_date)}</b><span>${esc(x.origin || "")}${x.source === "export" ? " · 내보낸 대화에서" : ""}</span><span class="sp"></span>${x.origin_link ? `<a href="${esc(x.origin_link)}" target="_blank" rel="noopener">원문</a>` : ""}<button type="button" class="fd-del" data-del="${x.ids.join(",")}" title="지우기" aria-label="지우기">×</button></div>
+      ${chips.length ? `<div class="fd-sum">${chips.join("")}</div>` : ""}
+      ${fillRows ? `<div class="tablewrap"><table class="fd-fills"><tbody>${fillRows}</tbody></table></div>` : ""}
+      ${x.text ? `<p class="fd-text ${long && !open ? "clip" : ""}">${esc(x.text)}</p>${long ? `<button type="button" class="fd-more" data-more="${x.id}">${open ? "접기" : "원문 더 보기"}</button>` : ""}` : ""}
+      ${photos ? `<div class="fd-photos">${photos}</div>` : ""}
+    </article>`;
+  }).join("");
+}
+$("fdFilter").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; fdFilter = b.dataset.v; try { localStorage.setItem("bunhal-fdfilter", fdFilter); } catch (er) {} renderFeed(); });
+$("fdReload").addEventListener("click", () => loadFeed());
+$("fdList").addEventListener("click", async e => {
+  const m = e.target.closest("[data-more]"); if (m) { const id = Number(m.dataset.more); fdOpen.has(id) ? fdOpen.delete(id) : fdOpen.add(id); renderFeed(); return; }
+  const d = e.target.closest("[data-del]"); if (!d) return;
+  if (d.dataset.confirm !== "1") { d.dataset.confirm = "1"; d.textContent = "지울까요? 한 번 더"; d.style.fontSize = "12px"; setTimeout(() => { if (d.isConnected) { d.dataset.confirm = ""; d.textContent = "×"; d.style.fontSize = ""; } }, 3000); return; }
+  const ids = d.dataset.del.split(",").map(Number);
+  try { for (const id of ids) await syncCall("feed_del", { id }); fdRows = fdRows.filter(r => !ids.includes(r.id)); renderFeed(); toast("지웠어요."); } catch (er) { toast("지우지 못했어요: " + er.message); }
+});
+
 /* ---------- 화면 전환 (메뉴) ---------- */
 let curView = "planner";
 function route() {
-  const hsh = location.hash.slice(1); const v = hsh === "report" ? "report" : "planner";
+  const hsh = location.hash.slice(1); const v = hsh === "report" || hsh === "feed" ? hsh : "planner";
   const changed = v !== curView; curView = v;
-  $("viewPlanner").hidden = v !== "planner"; $("viewReport").hidden = v !== "report";
+  $("viewPlanner").hidden = v !== "planner"; $("viewReport").hidden = v !== "report"; $("viewFeed").hidden = v !== "feed";
   document.querySelectorAll(".appnav a").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
-  document.title = v === "report" ? "주요 자산 성적표 · 분할매수 플래너" : "분할매수 플래너";
+  document.title = v === "report" ? "주요 자산 성적표 · 분할매수 플래너" : v === "feed" ? "운영자 매매 · 분할매수 플래너" : "분할매수 플래너";
   if (v === "report") { loadReport(); if (changed) window.scrollTo(0, 0); }
+  else if (v === "feed") { loadFeed(); if (changed) window.scrollTo(0, 0); }
   else { showTab(hsh || currentTab || "buy"); if (changed && lastResult) renderChart(lastResult, lastSell); }
 }
 window.addEventListener("hashchange", route);
