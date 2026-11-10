@@ -118,6 +118,8 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 .cx-grid .field input, .cx-grid .field select { width: 100%; height: 40px; box-sizing: border-box; }
 .cx-grid .field .seg { height: 40px; box-sizing: border-box; align-items: center; justify-self: start; }
 .cx-grid .field .seg button { padding: 6px 16px; }
+#cxPane { display: grid; gap: 14px; }
+.cx-quick { display: grid; gap: 6px; }
 .cx-sym { display: flex; gap: 6px; } .cx-sym input { flex: 1; min-width: 0; } .cx-sym .btn { height: 40px; flex: 0 0 auto; }
 @media (max-width: 640px) {
   .cx-top { grid-template-columns: 1fr; }
@@ -2709,10 +2711,10 @@ function renderCalc() {
     const fx = cxFx(); const M = Number(calc.cash) || 0; const BP = Number(calc.tp) || P;
     const inCcy = calc.cashCcy === calc.ccy ? M : calc.ccy === "USD" ? (fx ? M / fx : 0) : (fx ? M * fx : 0);
     const q = BP > 0 ? cxQ(inCcy / BP) : 0;
-    pane = `<div class="cx-grid cx-cash"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="예: 1,000,000 (아래 버튼으로 골라도 돼요)"></div>
+    pane = `<div class="cx-grid cx-cash"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="예: 1,000,000"></div>
       <div class="field"><span class="lbl">돈 단위</span><div class="seg" id="cxCashCcy"><button type="button" data-v="KRW" aria-pressed="${calc.cashCcy === "KRW"}">원</button><button type="button" data-v="USD" aria-pressed="${calc.cashCcy === "USD"}">달러</button></div></div>
       <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.tp)}"></div></div>
-      <div class="cx-btns" style="margin-top:-4px">${(calc.cashCcy === "USD" ? [500, 1000, 3000, 5000, 10000] : [500000, 1000000, 3000000, 5000000, 10000000]).map(v => `<button type="button" class="btn" data-cx-cash="${v}">${calc.cashCcy === "USD" ? "$" + v.toLocaleString("en-US") : (v / 1e4).toLocaleString("ko-KR") + "만"}</button>`).join("")}</div>
+      <div class="cx-quick"><span class="lbl">빠른 금액</span><div class="cx-btns">${(calc.cashCcy === "USD" ? [500, 1000, 3000, 5000, 10000] : [500000, 1000000, 3000000, 5000000, 10000000]).map(v => `<button type="button" class="btn" data-cx-cash="${v}">${calc.cashCcy === "USD" ? "$" + v.toLocaleString("en-US") : (v / 1e4).toLocaleString("ko-KR") + "만"}</button>`).join("")}</div></div>
       ${M > 0 && BP > 0 ? (() => { const nq = (Q || 0) + q, na = nq > 0 ? ((Q || 0) * (A || 0) + q * BP) / nq : null;
         return `<p style="margin:0;font-size:16px">→ ${calc.cashCcy === "USD" ? "$" + M.toLocaleString("en-US") : Math.round(M).toLocaleString("ko-KR") + "원"}어치면 ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b>${q > 0 && Q > 0 && A > 0 ? ` · 평단 <b>${cxP(A)} → ${cxP(na)}</b> <span class="${na < A ? "pos" : "neg"}">(${fmtPct(na / A - 1, true)})</span>` : q > 0 ? "" : " — 1주도 못 사요"}</p>
         <p class="note" style="margin:0">남는 돈 ${cxMoney(inCcy - q * BP)}${calc.cashCcy !== calc.ccy && fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}${!(Q > 0 && A > 0) ? " · 위에 보유 수량과 평단을 넣으면 새 평단이 나와요" : ""}</p>`; })() : ""}`;
