@@ -110,6 +110,19 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 .appnav a:hover { color: var(--ink); }
 @media (max-width: 480px) { .appnav a { padding: 7px 11px; font-size: 13px; } .appnav .lg { display: none; } }
 .appnav a[aria-current="page"] { background: var(--ink); color: var(--paper); }
+/* 물타기 계산기 */
+.cx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
+.cx-grid .field input, .cx-grid .field select { width: 100%; }
+.cx-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cx-kpi > div { padding: 12px 14px; display: grid; gap: 2px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -1px -1px 0; }
+.cx-kpi .v { font-family: var(--font-num); font-size: 20px; font-weight: 700; }
+.cx-kpi .k { font-size: 12px; color: var(--muted); }
+.cx-kpi .s { font-size: 12px; font-family: var(--font-num); color: var(--muted); }
+.cx-rows td input { width: 100%; min-width: 70px; max-width: 130px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-family: var(--font-num); text-align: right; }
+.cx-rows { font-size: 13px; min-width: 620px; }
+.cx-rows td, .cx-rows th { padding: 6px 8px; }
+.cx-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (max-width: 640px) { .cx-rows { min-width: 0; font-size: 12px; } .cx-rows .hm { display: none; } .cx-rows td, .cx-rows th { padding: 5px 3px; } .cx-rows td input { min-width: 56px; padding: 5px 6px; } .cx-kpi .v { font-size: 17px; } }
 /* 연도별 최대낙폭 */
 .ysum { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 12px; }
 .ysum > div { padding: 12px 14px; display: grid; gap: 2px; border-right: 1px solid var(--line); }
@@ -374,7 +387,8 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
   <nav class="appnav" aria-label="화면 전환">
     <a href="#buy" data-view="planner" aria-current="page">📈 <span class="lg">분할매수 </span>플래너</a>
     <a href="#report" data-view="report">📊 <span class="lg">주요 자산 </span>성적표</a>
-    <a href="#feed" data-view="feed">📮 운영자 매매</a>
+    <a href="#calc" data-view="calc">🧮 물타기<span class="lg"> 계산기</span></a>
+    <a href="#feed" data-view="feed">📮 운영자<span class="lg"> 매매</span></a>
   </nav>
   <div class="view" id="viewPlanner">
   <header class="top">
@@ -675,6 +689,32 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       </div>
       <div class="fd-list" id="fdList" aria-live="polite"></div>
       <p class="note" style="margin:0;font-size:12px">운영자 본인이 공유한 매매 기록을 모아둔 것이며 매수·매도 권유가 아닙니다. 자동 분류라 틀릴 수 있어요. 틀린 건 × 로 지우면 돼요.</p>
+    </section>
+  </div>
+
+  <div class="view" id="viewCalc" hidden>
+    <section class="card" aria-labelledby="cxTitle">
+      <div class="rc-head">
+        <div class="rc-kick"><span>물타기 계산기</span><span>평단 · 필요 수량 · 비중</span></div>
+        <h1 class="rc-title" id="cxTitle" style="font-size:clamp(22px,3.6vw,30px)">얼마나 사면 평단이 얼마가 될까요</h1>
+        <p class="rc-sub" style="margin:0">보유 종목을 고르면 수량·평단·현재가가 자동으로 들어와요. 더 비싸게 사는 불타기도 똑같이 계산돼요.</p>
+      </div>
+      <div class="cx-grid">
+        <div class="field" style="grid-column: span 2"><label for="cxHold">종목</label><select id="cxHold"></select></div>
+        <div class="field"><label for="cxQty">보유 수량</label><input id="cxQty" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div class="field"><label for="cxAvg">평단</label><input id="cxAvg" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div class="field"><label for="cxPx">현재가</label><input id="cxPx" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div class="field"><span class="lbl">가격 통화</span><div class="seg" id="cxCcy"><button type="button" data-v="KRW" aria-pressed="true">원</button><button type="button" data-v="USD" aria-pressed="false">달러</button></div></div>
+      </div>
+      <p class="note" id="cxNow" style="margin:0"></p>
+      <div class="seg" id="cxMode" role="group" aria-label="계산 방식" style="justify-self:start;flex-wrap:wrap;max-width:100%">
+        <button type="button" data-v="sim" aria-pressed="true">나눠 사보기</button>
+        <button type="button" data-v="target" aria-pressed="false">목표 평단 맞추기</button>
+        <button type="button" data-v="cash" aria-pressed="false">이 돈으로 사면</button>
+      </div>
+      <div id="cxPane"></div>
+      <div class="cx-kpi" id="cxKpi"></div>
+      <p class="note" id="cxNote" style="margin:0;font-size:12px"></p>
     </section>
   </div>
 
@@ -2568,16 +2608,145 @@ $("fdList").addEventListener("click", async e => {
   try { for (const id of ids) await syncCall("feed_del", { id }); fdRows = fdRows.filter(r => !ids.includes(r.id)); renderFeed(); toast("지웠어요."); } catch (er) { toast("지우지 못했어요: " + er.message); }
 });
 
+/* ---------- 물타기 계산기 ---------- */
+const calc = { key: "", qty: null, avg: null, price: null, ccy: "KRW", mode: "sim", rows: [{ p: null, q: null }], target: null, tp: null, cash: null, cashCcy: "KRW", high: null, levels: null };
+try { const s = JSON.parse(localStorage.getItem("bunhal-calc") || "null"); if (s) Object.assign(calc, s); } catch (e) {}
+const saveCalc = () => { try { localStorage.setItem("bunhal-calc", JSON.stringify(calc)); } catch (e) {} };
+const cxFx = () => holdFx || state.fx || null;
+const cxIsFrac = () => { const s = loadStore(); const p = (s.plans || {})[calc.key]; return !!(p && p.settings && p.settings.fractional) || (calc.qty % 1 !== 0); };
+const cxQ = q => calc.ccy === "USD" && cxIsFrac() ? Math.floor(q * 10000) / 10000 : Math.floor(q);
+function cxMoney(v) {
+  if (v == null || !isFinite(v)) return "—";
+  if (calc.ccy === "USD") { const fx = cxFx(); return `$${v.toLocaleString("en-US", { maximumFractionDigits: 2, minimumFractionDigits: 2 })}${fx ? ` <span class="muted">(약 ${Math.round(v * fx / 1e4).toLocaleString("ko-KR")}만원)</span>` : ""}`; }
+  return `${Math.round(v).toLocaleString("ko-KR")}원`;
+}
+const cxP = v => v == null || !isFinite(v) ? "—" : calc.ccy === "USD" ? `$${v.toFixed(2)}` : `${Math.round(v).toLocaleString("ko-KR")}원`;
+function cxPortfolio() { // 원화 기준 전체 평가액, 이 종목 평가액
+  const fx = cxFx(); let tot = 0, ok = true;
+  allHoldings().forEach(h => { const a = alertCache[h.key]; if (!a || a.price == null) { ok = false; return; } const usd = !/\.(KS|KQ)$/.test(h.key) && (h.p.ccy || "USD") === "USD"; if (usd && !fx) { ok = false; return; } tot += h.pos.qty * a.price * (usd ? fx : 1); });
+  return ok && tot > 0 ? tot : null;
+}
+function cxFillHold() {
+  const hs = allHoldings().sort((a, b) => String(a.p.name).localeCompare(String(b.p.name), "ko"));
+  $("cxHold").innerHTML = `<option value="">직접 입력</option>` + hs.map(h => `<option value="${esc(h.key)}" ${h.key === calc.key ? "selected" : ""}>${esc(String(h.p.name || h.key).replace(/\s*\([^)]*\)$/, ""))} · ${fmtQtyRaw(h.pos.qty)}주</option>`).join("");
+}
+async function cxPick(k) {
+  calc.key = k; if (!k) { saveCalc(); renderCalc(); return; }
+  const s = loadStore(); const p = (s.plans || {})[k]; const pos = position(sortTrades(((s.trades || {})[k] || []).slice()));
+  calc.qty = Math.round(pos.qty * 10000) / 10000; calc.avg = Math.round(pos.avg * 10000) / 10000;
+  calc.ccy = /\.(KS|KQ)$/.test(k) ? "KRW" : (p && p.ccy) || "USD";
+  let a = alertCache[k];
+  if (!a || a.price == null) { calc.price = null; renderCalc(); try { a = await computeAlert(k, p); alertCache[k] = a; } catch (e) {} }
+  if (a && a.price != null) { calc.price = Math.round(a.price * 10000) / 10000; calc.high = a.high || null; calc.levels = a.levels && a.levels.length ? a.levels : null; }
+  calc.rows = [{ p: calc.price, q: null }]; calc.tp = null; saveCalc(); renderCalc();
+}
+function cxAfter(adds) { // adds: [{p,q}] → 누적 결과
+  let q = calc.qty || 0, c = (calc.qty || 0) * (calc.avg || 0); const out = [];
+  adds.forEach(a => { if (a.p > 0 && a.q > 0) { q += a.q; c += a.p * a.q; } out.push({ ...a, cumQ: q, avg: q > 0 ? c / q : null, cost: c }); });
+  return out;
+}
+function renderCalc() {
+  cxFillHold();
+  ["cxQty", "cxAvg", "cxPx"].forEach((id, i) => { const v = [calc.qty, calc.avg, calc.price][i]; if (document.activeElement !== $(id)) $(id).value = v == null ? "" : v; });
+  document.querySelectorAll("#cxCcy button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === calc.ccy)));
+  document.querySelectorAll("#cxMode button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === calc.mode)));
+  const Q = calc.qty, A = calc.avg, P = calc.price; const ready = Q > 0 && A > 0 && P > 0;
+  $("cxNow").innerHTML = ready ? `지금 손익 <b class="${P < A ? "neg" : "pos"}">${fmtPct(P / A - 1, true)}</b> · 평가 ${cxMoney(Q * P)} · ${P < A ? `본전까지 <b>${fmtPct(A / P - 1, true)}</b> 올라야 해요` : "평단보다 위라서 더 사면 평단이 올라가요 (불타기)"}` : "보유 수량·평단·현재가를 넣으면 계산돼요.";
+  let adds = [], pane = "";
+  if (calc.mode === "sim") {
+    const res = cxAfter(calc.rows.map(r => ({ p: Number(r.p) || 0, q: Number(r.q) || 0 })));
+    pane = `<div class="tablewrap"><table class="cx-rows"><thead><tr><th>차수</th><th>매수 가격</th><th>수량</th><th class="hm">금액</th><th>누적 수량</th><th>새 평단</th><th class="hm">본전까지</th><th></th></tr></thead><tbody>${res.map((r, i) => `<tr>
+      <td>${i + 1}차</td><td class="n"><input data-cx-row="${i}" data-f="p" type="number" inputmode="decimal" step="any" value="${calc.rows[i].p ?? ""}" aria-label="${i + 1}차 매수 가격"></td>
+      <td class="n"><input data-cx-row="${i}" data-f="q" type="number" inputmode="decimal" step="any" value="${calc.rows[i].q ?? ""}" aria-label="${i + 1}차 수량"></td>
+      <td class="n hm">${r.p > 0 && r.q > 0 ? cxMoney(r.p * r.q) : "—"}</td><td class="n">${r.cumQ ? fmtQtyRaw(r.cumQ) + "주" : "—"}</td>
+      <td class="n"><b>${cxP(r.avg)}</b>${A > 0 && r.avg ? `<br><span class="muted" style="font-size:11px">${fmtPct(r.avg / A - 1, true)}</span>` : ""}</td>
+      <td class="n hm">${P > 0 && r.avg ? (P >= r.avg ? '<span class="pos">이미 수익</span>' : `+${((r.avg / P - 1) * 100).toFixed(1)}%`) : "—"}</td>
+      <td>${calc.rows.length > 1 ? `<button type="button" class="btn" style="padding:2px 9px" data-cx-del="${i}" aria-label="${i + 1}차 지우기">×</button>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      <div class="cx-btns"><button type="button" class="btn" data-cx="add">+ 한 번 더</button>
+      <button type="button" class="btn" data-cx="steps" ${P > 0 ? "" : "disabled"}>지금가 −5%·−10%·−15%로 채우기</button>
+      ${calc.high && calc.levels ? `<button type="button" class="btn" data-cx="stages">분할매수 단계 가격으로 채우기</button>` : ""}
+      <button type="button" class="btn" data-cx="even" ${P > 0 && Q > 0 ? "" : "disabled"}>수량 = 보유량의 ⅓씩</button></div>`;
+    adds = res.filter(r => r.p > 0 && r.q > 0);
+  } else if (calc.mode === "target") {
+    const T = Number(calc.target) || 0, BP = Number(calc.tp) || P;
+    const need = (bp) => { if (!(T > 0 && bp > 0 && Q > 0 && A > 0)) return null; const q = Q * (A - T) / (T - bp); return q > 0 && isFinite(q) ? q : null; };
+    const q0 = need(BP);
+    pane = `<div class="cx-grid"><div class="field"><label for="cxT">목표 평단</label><input id="cxT" type="number" inputmode="decimal" step="any" value="${calc.target ?? ""}" placeholder="${A > 0 && P > 0 ? cxP(A - (A - P) / 2).replace(/[$원,]/g, "") : ""}"></div>
+      <div class="field"><label for="cxTP">살 가격 (비우면 현재가)</label><input id="cxTP" type="number" inputmode="decimal" step="any" value="${calc.tp ?? ""}"></div></div>
+      ${T > 0 && !(q0) ? `<p class="note warn" style="margin:0">목표 평단은 <b>살 가격과 지금 평단 사이</b>여야 해요. (살 가격 ${cxP(BP)} · 평단 ${cxP(A)})</p>` : ""}
+      ${T > 0 && P > 0 ? `<div class="tablewrap"><table class="cx-rows"><thead><tr><th>살 가격</th><th>필요 수량</th><th>필요 금액</th><th class="hm">사고 나서 비중</th></tr></thead><tbody>${[0, -0.05, -0.1, -0.2].map(d => { const bp = (Number(calc.tp) || P) * (1 + d); const q = need(bp); const qq = q == null ? null : Math.ceil(q * (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1)) / (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1);
+        return `<tr><td class="n">${cxP(bp)}${d ? ` <span class="muted" style="font-size:11px">${fmtPct(d)}</span>` : ""}</td><td class="n"><b>${qq == null ? "—" : fmtQtyRaw(qq) + "주"}</b></td><td class="n">${qq == null ? "—" : cxMoney(qq * bp)}</td><td class="n hm">${qq == null ? "—" : cxWeight([{ p: bp, q: qq }])}</td></tr>`; }).join("")}</tbody></table></div>` : ""}`;
+    if (q0) { const qq = Math.ceil(q0 * (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1)) / (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1); adds = [{ p: BP, q: qq }]; }
+  } else {
+    const fx = cxFx(); const M = Number(calc.cash) || 0; const BP = Number(calc.tp) || P;
+    const inCcy = calc.cashCcy === calc.ccy ? M : calc.ccy === "USD" ? (fx ? M / fx : 0) : (fx ? M * fx : 0);
+    const q = BP > 0 ? cxQ(inCcy / BP) : 0;
+    pane = `<div class="cx-grid"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" type="number" inputmode="decimal" step="any" value="${calc.cash ?? ""}" placeholder="1000000"></div>
+      <div class="field"><span class="lbl">돈 단위</span><div class="seg" id="cxCashCcy"><button type="button" data-v="KRW" aria-pressed="${calc.cashCcy === "KRW"}">원</button><button type="button" data-v="USD" aria-pressed="${calc.cashCcy === "USD"}">달러</button></div></div>
+      <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" type="number" inputmode="decimal" step="any" value="${calc.tp ?? ""}"></div></div>
+      ${M > 0 && BP > 0 ? `<p style="margin:0">→ ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b> 살 수 있어요${calc.cashCcy !== calc.ccy && fx ? ` <span class="muted">(환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원)</span>` : ""}. 남는 돈 ${cxMoney(inCcy - q * BP)}</p>` : ""}`;
+    if (q > 0) adds = [{ p: BP, q }];
+  }
+  $("cxPane").innerHTML = pane;
+  // 요약
+  const last = cxAfter(adds).pop();
+  if (ready && last && last.avg) {
+    const add = adds.reduce((s, a) => s + a.p * a.q, 0), addQ = adds.reduce((s, a) => s + a.q, 0);
+    $("cxKpi").innerHTML = `
+      <div><span class="k">새 평단</span><span class="v">${cxP(last.avg)}</span><span class="s">${cxP(A)} → ${fmtPct(last.avg / A - 1, true)}</span></div>
+      <div><span class="k">본전까지 필요한 상승</span><span class="v">${P >= last.avg ? '<span class="pos">이미 수익</span>' : `+${((last.avg / P - 1) * 100).toFixed(1)}%`}</span><span class="s">지금 ${P >= A ? "수익 중" : `+${((A / P - 1) * 100).toFixed(1)}%`} → 사고 나서</span></div>
+      <div><span class="k">추가로 들어가는 돈</span><span class="v" style="font-size:16px">${cxMoney(add)}</span><span class="s">${fmtQtyRaw(addQ)}주 · 총 ${fmtQtyRaw(last.cumQ)}주</span></div>
+      <div><span class="k">지금가 기준 손익</span><span class="v ${P < last.avg ? "neg" : "pos"}">${fmtPct(P / last.avg - 1, true)}</span><span class="s">평가 ${cxMoney(last.cumQ * P)}</span></div>
+      <div><span class="k">내 포트폴리오에서 이 종목 비중</span><span class="v" style="font-size:16px">${cxWeight(adds)}</span><span class="s">보유 종목 기준</span></div>`;
+  } else $("cxKpi").innerHTML = `<div><span class="k">결과</span><span class="s">${ready ? "살 가격과 수량(또는 목표 평단·넣을 돈)을 넣어 주세요." : "위에 보유 수량·평단·현재가를 넣어 주세요."}</span></div>`;
+  const fallen = calc.high && P ? P / calc.high - 1 : null;
+  $("cxNote").innerHTML = `물타기는 평단을 낮추는 대신 이 종목 비중을 키워요. 미리 정한 가격·금액으로 나눠 사는 게 안전해요${calc.key ? ` — <a href="?t=${encodeURIComponent(calc.key.replace(/\.(KS|KQ)$/, ""))}#buy" data-cx-plan="${esc(calc.key)}">이 종목 분할매수 계획 보기</a>` : ""}${fallen != null ? ` · 지금 52주 고점 대비 ${fmtPct(fallen, true)}` : ""}. 계산은 수수료·세금·환율 변동을 넣지 않은 값이에요.`;
+}
+function cxWeight(adds) {
+  const tot = cxPortfolio(); const fx = cxFx(); const P = calc.price; if (!tot || !(P > 0)) return "—";
+  const k = calc.ccy === "USD" ? fx : 1; if (!k) return "—";
+  const addQ = adds.reduce((s, a) => s + a.q, 0);
+  const inPf = calc.key && allHoldings().some(h => h.key === calc.key);
+  const nowV = (calc.qty || 0) * P * k, aftV = ((calc.qty || 0) + addQ) * P * k; const others = inPf ? tot - nowV : tot; // 새 돈으로 산다고 보고 지금가로 평가
+  return `${(nowV / (others + nowV) * 100).toFixed(1)}% → <b>${(aftV / (others + aftV) * 100).toFixed(1)}%</b>`;
+}
+$("cxHold").addEventListener("change", e => cxPick(e.target.value));
+[["cxQty", "qty"], ["cxAvg", "avg"], ["cxPx", "price"]].forEach(([id, f]) => $(id).addEventListener("input", e => { calc[f] = e.target.value === "" ? null : Number(e.target.value); saveCalc(); renderCalc(); }));
+$("cxCcy").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; calc.ccy = b.dataset.v; saveCalc(); renderCalc(); });
+$("cxMode").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; calc.mode = b.dataset.v; saveCalc(); renderCalc(); });
+$("cxPane").addEventListener("input", e => {
+  const t = e.target; const v = t.value === "" ? null : Number(t.value);
+  if (t.dataset.cxRow != null) calc.rows[+t.dataset.cxRow][t.dataset.f] = v;
+  else if (t.id === "cxT") calc.target = v; else if (t.id === "cxTP" || t.id === "cxTP2") calc.tp = v; else if (t.id === "cxCash") calc.cash = v;
+  saveCalc(); const id = t.id, row = t.dataset.cxRow, f = t.dataset.f, pos = t.selectionStart;
+  renderCalc();
+  const el = id ? $(id) : $("cxPane").querySelector(`[data-cx-row="${row}"][data-f="${f}"]`);
+  if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} }
+});
+$("cxPane").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return; const P = calc.price;
+  if (b.closest("#cxCashCcy")) { calc.cashCcy = b.dataset.v; }
+  else if (b.dataset.cxDel != null) calc.rows.splice(+b.dataset.cxDel, 1);
+  else if (b.dataset.cx === "add") { const lp = Number(calc.rows[calc.rows.length - 1].p) || P; calc.rows.push({ p: lp ? Math.round(lp * 0.95 * 100) / 100 : null, q: calc.rows[calc.rows.length - 1].q }); }
+  else if (b.dataset.cx === "steps") calc.rows = [-0.05, -0.1, -0.15].map(d => ({ p: Math.round(P * (1 + d) * 100) / 100, q: null }));
+  else if (b.dataset.cx === "stages") { const ps = calc.levels.map(L => calc.high * (1 - L)).filter(x => x < P).slice(0, 4); calc.rows = (ps.length ? ps : [P]).map(x => ({ p: Math.round(x * 100) / 100, q: null })); }
+  else if (b.dataset.cx === "even") { const q = cxQ(calc.qty / 3) || 1; calc.rows = calc.rows.map(r => ({ p: r.p || P, q })); }
+  else return;
+  saveCalc(); renderCalc();
+});
+$("cxNote").addEventListener("click", e => { const a = e.target.closest("[data-cx-plan]"); if (!a) return; e.preventDefault(); location.hash = "buy"; window.scrollTo(0, 0); fetchTicker(a.dataset.cxPlan); });
+
 /* ---------- 화면 전환 (메뉴) ---------- */
 let curView = "planner";
 function route() {
-  const hsh = location.hash.slice(1); const v = hsh === "report" || hsh === "feed" ? hsh : "planner";
+  const hsh = location.hash.slice(1); const v = hsh === "report" || hsh === "feed" || hsh === "calc" ? hsh : "planner";
   const changed = v !== curView; curView = v;
-  $("viewPlanner").hidden = v !== "planner"; $("viewReport").hidden = v !== "report"; $("viewFeed").hidden = v !== "feed";
+  $("viewPlanner").hidden = v !== "planner"; $("viewReport").hidden = v !== "report"; $("viewFeed").hidden = v !== "feed"; $("viewCalc").hidden = v !== "calc";
   document.querySelectorAll(".appnav a").forEach(a => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
-  document.title = v === "report" ? "주요 자산 성적표 · 분할매수 플래너" : v === "feed" ? "운영자 매매 · 분할매수 플래너" : "분할매수 플래너";
+  document.title = v === "report" ? "주요 자산 성적표 · 분할매수 플래너" : v === "feed" ? "운영자 매매 · 분할매수 플래너" : v === "calc" ? "물타기 계산기 · 분할매수 플래너" : "분할매수 플래너";
   if (v === "report") { loadReport(); if (changed) window.scrollTo(0, 0); }
   else if (v === "feed") { loadFeed(); if (changed) window.scrollTo(0, 0); }
+  else if (v === "calc") { if (calc.key && !allHoldings().some(h => h.key === calc.key)) calc.key = ""; if (calc.key) cxPick(calc.key); else renderCalc(); if (changed) window.scrollTo(0, 0); }
   else { showTab(hsh || currentTab || "buy"); if (changed && lastResult) renderChart(lastResult, lastSell); }
 }
 window.addEventListener("hashchange", route);
