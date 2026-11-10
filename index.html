@@ -111,8 +111,19 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 @media (max-width: 480px) { .appnav a { padding: 7px 11px; font-size: 13px; } .appnav .lg { display: none; } }
 .appnav a[aria-current="page"] { background: var(--ink); color: var(--paper); }
 /* 물타기 계산기 */
-.cx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
-.cx-grid .field input, .cx-grid .field select { width: 100%; }
+.cx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: start; }
+.cx-top { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.cx-nums { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
+.cx-cash { grid-template-columns: minmax(0, 1.4fr) auto minmax(0, 1fr); }
+.cx-grid .field input, .cx-grid .field select { width: 100%; height: 40px; box-sizing: border-box; }
+.cx-grid .field .seg { height: 40px; box-sizing: border-box; align-items: center; justify-self: start; }
+.cx-grid .field .seg button { padding: 6px 16px; }
+.cx-sym { display: flex; gap: 6px; } .cx-sym input { flex: 1; min-width: 0; } .cx-sym .btn { height: 40px; flex: 0 0 auto; }
+@media (max-width: 640px) {
+  .cx-top { grid-template-columns: 1fr; }
+  .cx-nums { grid-template-columns: 1fr 1fr; } .cx-nums .field:nth-child(3) { grid-column: 1; }
+  .cx-cash { grid-template-columns: 1fr auto; } .cx-cash .field:nth-child(3) { grid-column: 1 / -1; }
+}
 .cx-grid input.cxn, .cx-rows input { font-family: var(--font-num); text-align: right; }
 #cxSymMsg { font-size: 12px; }
 .cx-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
@@ -701,9 +712,11 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
         <h1 class="rc-title" id="cxTitle" style="font-size:clamp(22px,3.6vw,30px)">얼마나 사면 평단이 얼마가 될까요</h1>
         <p class="rc-sub" style="margin:0">보유 종목을 고르면 수량·평단·현재가가 자동으로 들어와요. 더 비싸게 사는 불타기도 똑같이 계산돼요.</p>
       </div>
-      <div class="cx-grid">
+      <div class="cx-grid cx-top">
         <div class="field"><label for="cxHold">내 보유 종목</label><select id="cxHold"></select></div>
-        <div class="field"><label for="cxSym">또는 종목 직접 입력</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="cxSym" type="text" placeholder="이름·티커 예) 테슬라, 005930" autocomplete="off" style="flex:1;min-width:0"><button type="button" class="btn" id="cxSymGo">불러오기</button></div></div>
+        <div class="field"><label for="cxSym">또는 종목 직접 입력</label><div class="cx-sym"><input id="cxSym" type="text" placeholder="이름·티커 (예: 테슬라, 005930)" autocomplete="off"><button type="button" class="btn" id="cxSymGo">불러오기</button></div></div>
+      </div>
+      <div class="cx-grid cx-nums">
         <div class="field"><label for="cxQty">보유 수량</label><input id="cxQty" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
         <div class="field"><label for="cxAvg">평단</label><input id="cxAvg" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
         <div class="field"><label for="cxPx">현재가</label><input id="cxPx" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
@@ -2696,10 +2709,10 @@ function renderCalc() {
     const fx = cxFx(); const M = Number(calc.cash) || 0; const BP = Number(calc.tp) || P;
     const inCcy = calc.cashCcy === calc.ccy ? M : calc.ccy === "USD" ? (fx ? M / fx : 0) : (fx ? M * fx : 0);
     const q = BP > 0 ? cxQ(inCcy / BP) : 0;
-    pane = `<div class="cx-grid"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="1,000,000"></div>
+    pane = `<div class="cx-grid cx-cash"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="예: 1,000,000 (아래 버튼으로 골라도 돼요)"></div>
       <div class="field"><span class="lbl">돈 단위</span><div class="seg" id="cxCashCcy"><button type="button" data-v="KRW" aria-pressed="${calc.cashCcy === "KRW"}">원</button><button type="button" data-v="USD" aria-pressed="${calc.cashCcy === "USD"}">달러</button></div></div>
       <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.tp)}"></div></div>
-      <div class="cx-btns">${(calc.cashCcy === "USD" ? [500, 1000, 3000, 5000, 10000] : [500000, 1000000, 3000000, 5000000, 10000000]).map(v => `<button type="button" class="btn" data-cx-cash="${v}">${calc.cashCcy === "USD" ? "$" + v.toLocaleString("en-US") : (v / 1e4).toLocaleString("ko-KR") + "만"}</button>`).join("")}</div>
+      <div class="cx-btns" style="margin-top:-4px">${(calc.cashCcy === "USD" ? [500, 1000, 3000, 5000, 10000] : [500000, 1000000, 3000000, 5000000, 10000000]).map(v => `<button type="button" class="btn" data-cx-cash="${v}">${calc.cashCcy === "USD" ? "$" + v.toLocaleString("en-US") : (v / 1e4).toLocaleString("ko-KR") + "만"}</button>`).join("")}</div>
       ${M > 0 && BP > 0 ? (() => { const nq = (Q || 0) + q, na = nq > 0 ? ((Q || 0) * (A || 0) + q * BP) / nq : null;
         return `<p style="margin:0;font-size:16px">→ ${calc.cashCcy === "USD" ? "$" + M.toLocaleString("en-US") : Math.round(M).toLocaleString("ko-KR") + "원"}어치면 ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b>${q > 0 && Q > 0 && A > 0 ? ` · 평단 <b>${cxP(A)} → ${cxP(na)}</b> <span class="${na < A ? "pos" : "neg"}">(${fmtPct(na / A - 1, true)})</span>` : q > 0 ? "" : " — 1주도 못 사요"}</p>
         <p class="note" style="margin:0">남는 돈 ${cxMoney(inCcy - q * BP)}${calc.cashCcy !== calc.ccy && fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}${!(Q > 0 && A > 0) ? " · 위에 보유 수량과 평단을 넣으면 새 평단이 나와요" : ""}</p>`; })() : ""}`;
