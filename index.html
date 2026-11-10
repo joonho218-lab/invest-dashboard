@@ -479,6 +479,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
           <button type="button" data-v="2" aria-pressed="false">2단계</button>
           <button type="button" data-v="3" aria-pressed="false">3단계</button>
           <button type="button" data-v="4" aria-pressed="false">4단계</button>
+          <button type="button" data-v="0" aria-pressed="false" title="새로 사지 않고, 가진 수량의 매도 계획만 씁니다">매수 안 함</button>
         </div>
       </div>
       <div class="field"><span class="lbl">단계 기준</span>
@@ -941,8 +942,10 @@ function analyze(series, opt) {
   let pct = w.map(x => Math.round(x * 100)); const diff = 100 - pct.reduce((a, b) => a + b, 0);
   if (diff !== 0) { const j = pct.indexOf(Math.max(...pct.slice(1))); pct[j] += diff; }
   w = pct.map(x => x / 100);
-  const f = Math.min(Math.max(1, Math.round(opt.fromStage || 1)), stages.length) - 1;
-  if (f > 0) {
+  // fromStage 0 = 매수 안 함(보유분 매도 계획만) → 모든 단계 건너뜀
+  const f = opt.fromStage === 0 ? stages.length : Math.min(Math.max(1, Math.round(opt.fromStage || 1)), stages.length) - 1;
+  if (f >= stages.length) w = w.map(() => 0);
+  else if (f > 0) {
     const ks = w.slice(f).reduce((a, b) => a + b, 0);
     let p2 = w.map((x, i) => i < f ? 0 : Math.round(x / ks * 100)); const d2 = 100 - p2.reduce((a, b) => a + b, 0);
     if (d2 !== 0) { const j = p2.indexOf(Math.max(...p2)); p2[j] += d2; }
@@ -1199,7 +1202,7 @@ function renderLog(r, model, sp) {
   const hasPos = pos.qty > 0;
   const row = (x) => {
     const status = x.done ? `<span class="pos">완료 · ${x.done.date}</span>`
-      : x.skip ? `<span class="muted">건너뜀 · ${state.fromStage}단계부터 시작</span>`
+      : x.skip ? `<span class="muted">건너뜀 · ${state.fromStage === 0 ? "매수 안 함" : `${state.fromStage}단계부터 시작`}</span>`
       : x.due ? `<b class="${x.kind === "buy" ? "neg" : "pos"}">${x.kind === "buy" ? "지금 매수할 차례" : x.kind === "trail" ? "정리할 차례" : "지금 매도할 차례"}</b>`
       : x.queued ? `<span class="muted">가격 도달 · 앞 단계를 산 뒤 10거래일 지나서</span>`
       : x.wait ? `<span class="muted">가격 도달 · 직전 매수 후 ${x.wait}거래일 더 기다리기</span>`
@@ -1281,7 +1284,8 @@ function render() {
     : state.weighting === "equal" ? "나머지 비중은 2~5단계에 <strong>균등</strong>하게 나눴습니다." : "나머지 비중은 <strong>깊은 단계일수록 크게</strong> 나눴습니다.";
   const nowLine = r.N ? `지금 낙폭 ${fmtPct(r.dd, true)}보다 더 깊이 내려간 사이클은 과거 ${r.N}번 중 <strong>${r.deeperThanNow}번</strong>(${(r.deeperThanNow / r.N * 100).toFixed(0)}%)이었습니다.` : "";
   $("rule").innerHTML = `
-    ${state.fromStage > 1 ? `<p><strong>${state.fromStage}단계부터 시작하는 계획 — 1${state.fromStage > 2 ? `~${state.fromStage - 1}` : ""}단계는 건너뛰고, 그 몫을 ${state.fromStage}~${r.stages.length}단계에 같은 비율로 나눠 담았습니다.</strong>${isLeverage(state.name, tradeKey()) ? " 레버리지 상품은 흔한 하락에서 사면 손익비가 나빠서, 채널에서도 과거보다 충분히 깊어진 3·4단계부터 진입을 검토한다고 했습니다." : ""}</p>`
+    ${state.fromStage === 0 ? `<p><strong>매수 안 함 — 새로 사지 않고, 지금 가진 수량을 '매도 계획' 탭의 가격에 나눠 파는 계획입니다.</strong> 아래 단계는 참고용이며 알림이 가지 않습니다.</p>`
+      : state.fromStage > 1 ? `<p><strong>${state.fromStage}단계부터 시작하는 계획 — 1${state.fromStage > 2 ? `~${state.fromStage - 1}` : ""}단계는 건너뛰고, 그 몫을 ${state.fromStage}~${r.stages.length}단계에 같은 비율로 나눠 담았습니다.</strong>${isLeverage(state.name, tradeKey()) ? " 레버리지 상품은 흔한 하락에서 사면 손익비가 나빠서, 채널에서도 과거보다 충분히 깊어진 3·4단계부터 진입을 검토한다고 했습니다." : ""}</p>`
       : `<p><strong>${state.start >= 0.3 ? "기본" : "보수적"} 계획 — 1단계 ${startPct}%부터 시작해 더 내려갈 때 나눠 삽니다.</strong>${isLeverage(state.name, tradeKey()) ? ' <span class="warn">레버리지 상품이에요. 채널 기준으로는 \'시작 단계\'를 3단계 이상으로 잡는 걸 권해요.</span>' : ""}</p>`}
     <p>${levelLine} 진행 중인 하락은 표본에서 뺐습니다.</p>
     <p>${wLine} ${nowLine}</p>
@@ -1822,12 +1826,12 @@ function savePlan(forceWatch) {
 function restorePlan() {
   const p = (loadStore().plans || {})[tradeKey()]; if (!p || !p.settings) return false;
   SETTING_KEYS.forEach(k => { if (p.settings[k] !== undefined && p.settings[k] !== null || k === "budget" || k === "fx" || k === "fromYear") state[k] = clone(p.settings[k]); });
-  if (!p.settings.fromStage) state.fromStage = 1;
+  if (p.settings.fromStage == null) state.fromStage = 1;
   applySettingsToUI(); return true;
 }
 function applySettingsToUI() {
   const press = (id, v) => document.querySelectorAll(`#${id} button`).forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === String(v))));
-  press("startSeg", Number(state.start).toFixed(2)); press("fromSeg", state.fromStage || 1); press("levelSeg", state.levelMode); press("budgetSeg", state.budgetCcy); press("basisSeg", state.sellBasis);
+  press("startSeg", Number(state.start).toFixed(2)); press("fromSeg", state.fromStage ?? 1); press("levelSeg", state.levelMode); press("budgetSeg", state.budgetCcy); press("basisSeg", state.sellBasis);
   $("fixedBox").hidden = state.levelMode !== "fixed";
   $("weighting").value = state.weighting; $("minDepth").value = Math.round(state.minDepth * 100);
   $("fromYear").value = state.fromYear || ""; $("budget").value = state.budget || ""; $("fx").value = state.fx || "";
