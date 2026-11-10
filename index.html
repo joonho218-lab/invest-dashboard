@@ -157,9 +157,11 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 .rc-sub { font-size: 15px; color: var(--muted); }
 .rc-sub b { font-family: var(--font-num); }
 .rc-list { display: grid; }
-.rc-row { display: grid; grid-template-columns: minmax(150px, 1.5fr) 90px 100px minmax(220px, 2.2fr); gap: 4px 16px; align-items: center; padding: 11px 6px; border-bottom: 1px solid var(--line); }
+.rc-row { display: grid; grid-template-columns: minmax(150px, 1.5fr) 110px 90px 100px minmax(200px, 2.2fr); gap: 4px 16px; align-items: center; padding: 11px 6px; border-bottom: 1px solid var(--line); }
 .rc-row.hd { font-size: 12px; color: var(--muted); padding-top: 4px; padding-bottom: 6px; }
-.rc-row.hd > div:nth-child(2), .rc-row.hd > div:nth-child(3) { text-align: right; }
+.rc-row.hd > div:nth-child(2), .rc-row.hd > div:nth-child(3), .rc-row.hd > div:nth-child(4) { text-align: right; }
+.rc-px { font-size: 15px; font-weight: 600; }
+.rc-pxm { display: none; font-style: normal; }
 button.rc-row { width: 100%; background: none; border: 0; border-bottom: 1px solid var(--line); font: inherit; color: inherit; text-align: left; cursor: pointer; }
 button.rc-row:hover { background: var(--soft); }
 .rc-grp { font-size: 12px; font-weight: 700; color: var(--muted); background: var(--soft); padding: 6px 8px; border-radius: 6px; margin-top: 10px; }
@@ -181,6 +183,7 @@ button.rc-row:hover { background: var(--soft); }
   .rc-row.hd { display: none; }
   .rc-name { grid-area: name; } .rc-ytd { grid-area: ytd; } .rc-day { grid-area: day; font-size: 12px; } .rc-rng { grid-area: rng; }
   .rc-day::before { content: "전일 "; color: var(--muted); font-family: var(--font-body); }
+  .rc-px { display: none; } .rc-pxm { display: inline; color: var(--ink); font-weight: 600; }
 }
 .tablewrap { overflow-x: auto; max-width: 100%; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 760px; }
@@ -2446,8 +2449,9 @@ function rcStat(sym) {
   const L = s.series.length; const last = s.series[L - 1], prev = s.series[L - 2];
   const f0 = s.series.findIndex(p => p[0].slice(0, 4) === cur.y);
   return { years: used.length, up: used.length ? mean(used.map(y => y.up)) : null, down: used.length ? mean(used.map(y => y.down)) : null,
-    day: prev ? last[1] / prev[1] - 1 : null, ytd: f0 >= 0 && f0 < L - 1 ? last[1] / s.series[f0][1] - 1 : null, date: last[0], first: s.series[f0] && s.series[f0][0] };
+    price: last[1], ccy: s.ccy, day: prev ? last[1] / prev[1] - 1 : null, ytd: f0 >= 0 && f0 < L - 1 ? last[1] / s.series[f0][1] - 1 : null, date: last[0], first: s.series[f0] && s.series[f0][0] };
 }
+const rcPx = st => st.price == null ? "—" : st.ccy === "KRW" ? `${Math.round(st.price).toLocaleString("ko-KR")}원` : `$${st.price >= 1000 ? st.price.toLocaleString("en-US", { maximumFractionDigits: 2 }) : st.price.toFixed(2)}`;
 const arrow = (v, d = 2) => v == null ? "—" : `${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v * 100).toFixed(d)}%`;
 function rcRange(st) {
   if (st.up == null || st.ytd == null) return `<div class="rc-rng"><span class="muted" style="font-size:12px">평년 통계 없음 (상장 1년 미만)</span></div>`;
@@ -2474,16 +2478,17 @@ function renderReport() {
   } else { $("rcTitle").textContent = "자산별 올해 성적을 불러오고 있어요"; $("rcDate").textContent = `불러오는 중 ${all.length - waiting}/${all.length}`; }
   const row = a => {
     const st = a.st;
-    if (!st) return `<div class="rc-row"><div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym)}</span></div><div class="rc-num rc-day muted">…</div><div class="rc-num rc-ytd muted">…</div><div class="rc-rng"></div></div>`;
-    if (st.error) return `<div class="rc-row"><div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym)}</span></div><div class="rc-num rc-day muted">—</div><div class="rc-num rc-ytd muted">—</div><div class="rc-rng muted" style="font-size:12px">가격을 불러오지 못했어요</div></div>`;
+    if (!st) return `<div class="rc-row"><div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym)}</span></div><div class="rc-num rc-px muted">…</div><div class="rc-num rc-day muted">…</div><div class="rc-num rc-ytd muted">…</div><div class="rc-rng"></div></div>`;
+    if (st.error) return `<div class="rc-row"><div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym)}</span></div><div class="rc-num rc-px muted">—</div><div class="rc-num rc-day muted">—</div><div class="rc-num rc-ytd muted">—</div><div class="rc-rng muted" style="font-size:12px">가격을 불러오지 못했어요</div></div>`;
     const cl = v => v == null ? "muted" : v > 0 ? "pos" : v < 0 ? "neg" : "";
     return `<button type="button" class="rc-row" data-rc="${esc(a.sym)}" data-nm="${esc(a.nm)}" title="${esc(a.nm)} 분할매수 계획 보기">
-      <div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym.replace(/\.(KS|KQ)$/, ""))} · ${st.years}년</span></div>
+      <div class="rc-name"><b>${esc(a.nm)}</b><span>${esc(a.sym.replace(/\.(KS|KQ)$/, ""))} · ${st.years}년 <em class="rc-pxm">· ${rcPx(st)}</em></span></div>
+      <div class="rc-num rc-px">${rcPx(st)}</div>
       <div class="rc-num rc-day ${cl(st.day)}">${arrow(st.day)}</div>
       <div class="rc-num rc-ytd ${cl(st.ytd)}">${arrow(st.ytd)}</div>
       ${rcRange(st)}</button>`;
   };
-  const head = `<div class="rc-row hd"><div>자산 · 티커 · 통계 연수</div><div>전일 대비</div><div>연초 대비</div><div>평년 범위 안에서 올해 위치</div></div>`;
+  const head = `<div class="rc-row hd"><div>자산 · 티커 · 통계 연수</div><div>현재가</div><div>전일 대비</div><div>연초 대비</div><div>평년 범위 안에서 올해 위치</div></div>`;
   let html = head;
   if (rcSort === "group") html += groups.map(([g, items]) => `<div class="rc-grp">${esc(g)}</div>` + all.filter(a => a.g === g).map(row).join("")).join("");
   else { const k = rcSort === "ytd" ? "ytd" : "day"; html += all.slice().sort((a, b) => ((b.st && b.st[k]) ?? -9) - ((a.st && a.st[k]) ?? -9)).map(row).join(""); }
@@ -2495,7 +2500,7 @@ async function loadReport(force) {
   renderReport();
   let i = 0;
   const worker = async () => { while (i < syms.length) { const s = syms[i++];
-    try { const r = await fetch(`/api/prices?symbol=${encodeURIComponent(s)}`); if (!r.ok) throw new Error(r.status); const j = await r.json(); rcCache.set(s, { series: j.dates.map((d, k) => [d, j.close[k]]).filter(p => p[1] > 0) }); }
+    try { const r = await fetch(`/api/prices?symbol=${encodeURIComponent(s)}`); if (!r.ok) throw new Error(r.status); const j = await r.json(); rcCache.set(s, { ccy: j.currency || (/\.(KS|KQ)$/.test(s) ? "KRW" : "USD"), series: j.dates.map((d, k) => [d, j.close[k]]).filter(p => p[1] > 0) }); }
     catch (e) { rcCache.set(s, { error: String(e.message || e) }); }
     renderReport(); } };
   await Promise.all([worker(), worker(), worker(), worker()]);
