@@ -113,6 +113,8 @@ textarea { width: 100%; min-height: 110px; background: var(--bg); border: 1px so
 /* 물타기 계산기 */
 .cx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; align-items: end; }
 .cx-grid .field input, .cx-grid .field select { width: 100%; }
+.cx-grid input.cxn, .cx-rows input { font-family: var(--font-num); text-align: right; }
+#cxSymMsg { font-size: 12px; }
 .cx-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .cx-kpi > div { padding: 12px 14px; display: grid; gap: 2px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 0 -1px -1px 0; }
 .cx-kpi .v { font-family: var(--font-num); font-size: 20px; font-weight: 700; }
@@ -700,12 +702,14 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
         <p class="rc-sub" style="margin:0">보유 종목을 고르면 수량·평단·현재가가 자동으로 들어와요. 더 비싸게 사는 불타기도 똑같이 계산돼요.</p>
       </div>
       <div class="cx-grid">
-        <div class="field" style="grid-column: span 2"><label for="cxHold">종목</label><select id="cxHold"></select></div>
-        <div class="field"><label for="cxQty">보유 수량</label><input id="cxQty" type="number" inputmode="decimal" min="0" step="any"></div>
-        <div class="field"><label for="cxAvg">평단</label><input id="cxAvg" type="number" inputmode="decimal" min="0" step="any"></div>
-        <div class="field"><label for="cxPx">현재가</label><input id="cxPx" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div class="field"><label for="cxHold">내 보유 종목</label><select id="cxHold"></select></div>
+        <div class="field"><label for="cxSym">또는 종목 직접 입력</label><div class="row" style="gap:6px;flex-wrap:nowrap"><input id="cxSym" type="text" placeholder="이름·티커 예) 테슬라, 005930" autocomplete="off" style="flex:1;min-width:0"><button type="button" class="btn" id="cxSymGo">불러오기</button></div></div>
+        <div class="field"><label for="cxQty">보유 수량</label><input id="cxQty" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
+        <div class="field"><label for="cxAvg">평단</label><input id="cxAvg" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
+        <div class="field"><label for="cxPx">현재가</label><input id="cxPx" class="cxn" type="text" inputmode="decimal" autocomplete="off"></div>
         <div class="field"><span class="lbl">가격 통화</span><div class="seg" id="cxCcy"><button type="button" data-v="KRW" aria-pressed="true">원</button><button type="button" data-v="USD" aria-pressed="false">달러</button></div></div>
       </div>
+      <p class="note" id="cxSymMsg" style="margin:0" hidden></p>
       <p class="note" id="cxNow" style="margin:0"></p>
       <div class="seg" id="cxMode" role="group" aria-label="계산 방식" style="justify-self:start;flex-wrap:wrap;max-width:100%">
         <button type="button" data-v="sim" aria-pressed="true">나눠 사보기</button>
@@ -2613,6 +2617,17 @@ const calc = { key: "", qty: null, avg: null, price: null, ccy: "KRW", mode: "si
 try { const s = JSON.parse(localStorage.getItem("bunhal-calc") || "null"); if (s) Object.assign(calc, s); } catch (e) {}
 const saveCalc = () => { try { localStorage.setItem("bunhal-calc", JSON.stringify(calc)); } catch (e) {} };
 const cxFx = () => holdFx || state.fx || null;
+// 숫자 칸: 세 자리마다 쉼표, 소수점은 입력한 그대로 유지
+const cxClean = s => { let t = String(s ?? "").replace(/[^\d.]/g, ""); const i = t.indexOf("."); if (i >= 0) t = t.slice(0, i + 1) + t.slice(i + 1).replace(/\./g, ""); return t; };
+const cxGroup = t => { if (t === "") return ""; const [a, b] = t.split("."); const ia = a.replace(/^0+(?=\d)/, ""); return (ia === "" ? "0" : Number(ia).toLocaleString("ko-KR")) + (b != null ? "." + b : ""); };
+const cxFmt = v => v == null || v === "" || !isFinite(v) ? "" : cxGroup(cxClean(String(Math.round(v * 10000) / 10000)));
+function cxLive(el) { // 입력 중인 칸을 쉼표 넣어 다시 쓰고 커서 위치를 지킨다 → 숫자 반환
+  const raw = el.value, pos = el.selectionStart ?? raw.length; const before = cxClean(raw.slice(0, pos)).length;
+  const t = cxClean(raw), g = cxGroup(t); el.value = g;
+  let n = 0, c = 0; while (c < g.length && n < before) { if (/[\d.]/.test(g[c])) n++; c++; }
+  try { el.setSelectionRange(c, c); } catch (e) {}
+  return t === "" || t === "." ? null : Number(t);
+}
 const cxIsFrac = () => { const s = loadStore(); const p = (s.plans || {})[calc.key]; return !!(p && p.settings && p.settings.fractional) || (calc.qty % 1 !== 0); };
 const cxQ = q => calc.ccy === "USD" && cxIsFrac() ? Math.floor(q * 10000) / 10000 : Math.floor(q);
 function cxMoney(v) {
@@ -2628,7 +2643,7 @@ function cxPortfolio() { // 원화 기준 전체 평가액, 이 종목 평가액
 }
 function cxFillHold() {
   const hs = allHoldings().sort((a, b) => String(a.p.name).localeCompare(String(b.p.name), "ko"));
-  $("cxHold").innerHTML = `<option value="">직접 입력</option>` + hs.map(h => `<option value="${esc(h.key)}" ${h.key === calc.key ? "selected" : ""}>${esc(String(h.p.name || h.key).replace(/\s*\([^)]*\)$/, ""))} · ${fmtQtyRaw(h.pos.qty)}주</option>`).join("");
+  $("cxHold").innerHTML = `<option value="">선택 안 함 (직접 입력)</option>` + hs.map(h => `<option value="${esc(h.key)}" ${h.key === calc.key ? "selected" : ""}>${esc(String(h.p.name || h.key).replace(/\s*\([^)]*\)$/, ""))} · ${fmtQtyRaw(h.pos.qty)}주</option>`).join("");
 }
 async function cxPick(k) {
   calc.key = k; if (!k) { saveCalc(); renderCalc(); return; }
@@ -2647,7 +2662,7 @@ function cxAfter(adds) { // adds: [{p,q}] → 누적 결과
 }
 function renderCalc() {
   cxFillHold();
-  ["cxQty", "cxAvg", "cxPx"].forEach((id, i) => { const v = [calc.qty, calc.avg, calc.price][i]; if (document.activeElement !== $(id)) $(id).value = v == null ? "" : v; });
+  ["cxQty", "cxAvg", "cxPx"].forEach((id, i) => { const v = [calc.qty, calc.avg, calc.price][i]; if (document.activeElement !== $(id)) $(id).value = cxFmt(v); });
   document.querySelectorAll("#cxCcy button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === calc.ccy)));
   document.querySelectorAll("#cxMode button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === calc.mode)));
   const Q = calc.qty, A = calc.avg, P = calc.price; const ready = Q > 0 && A > 0 && P > 0;
@@ -2656,8 +2671,8 @@ function renderCalc() {
   if (calc.mode === "sim") {
     const res = cxAfter(calc.rows.map(r => ({ p: Number(r.p) || 0, q: Number(r.q) || 0 })));
     pane = `<div class="tablewrap"><table class="cx-rows"><thead><tr><th>차수</th><th>매수 가격</th><th>수량</th><th class="hm">금액</th><th>누적 수량</th><th>새 평단</th><th class="hm">본전까지</th><th></th></tr></thead><tbody>${res.map((r, i) => `<tr>
-      <td>${i + 1}차</td><td class="n"><input data-cx-row="${i}" data-f="p" type="number" inputmode="decimal" step="any" value="${calc.rows[i].p ?? ""}" aria-label="${i + 1}차 매수 가격"></td>
-      <td class="n"><input data-cx-row="${i}" data-f="q" type="number" inputmode="decimal" step="any" value="${calc.rows[i].q ?? ""}" aria-label="${i + 1}차 수량"></td>
+      <td>${i + 1}차</td><td class="n"><input data-cx-row="${i}" data-f="p" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.rows[i].p)}" aria-label="${i + 1}차 매수 가격"></td>
+      <td class="n"><input data-cx-row="${i}" data-f="q" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.rows[i].q)}" aria-label="${i + 1}차 수량"></td>
       <td class="n hm">${r.p > 0 && r.q > 0 ? cxMoney(r.p * r.q) : "—"}</td><td class="n">${r.cumQ ? fmtQtyRaw(r.cumQ) + "주" : "—"}</td>
       <td class="n"><b>${cxP(r.avg)}</b>${A > 0 && r.avg ? `<br><span class="muted" style="font-size:11px">${fmtPct(r.avg / A - 1, true)}</span>` : ""}</td>
       <td class="n hm">${P > 0 && r.avg ? (P >= r.avg ? '<span class="pos">이미 수익</span>' : `+${((r.avg / P - 1) * 100).toFixed(1)}%`) : "—"}</td>
@@ -2671,8 +2686,8 @@ function renderCalc() {
     const T = Number(calc.target) || 0, BP = Number(calc.tp) || P;
     const need = (bp) => { if (!(T > 0 && bp > 0 && Q > 0 && A > 0)) return null; const q = Q * (A - T) / (T - bp); return q > 0 && isFinite(q) ? q : null; };
     const q0 = need(BP);
-    pane = `<div class="cx-grid"><div class="field"><label for="cxT">목표 평단</label><input id="cxT" type="number" inputmode="decimal" step="any" value="${calc.target ?? ""}" placeholder="${A > 0 && P > 0 ? cxP(A - (A - P) / 2).replace(/[$원,]/g, "") : ""}"></div>
-      <div class="field"><label for="cxTP">살 가격 (비우면 현재가)</label><input id="cxTP" type="number" inputmode="decimal" step="any" value="${calc.tp ?? ""}"></div></div>
+    pane = `<div class="cx-grid"><div class="field"><label for="cxT">목표 평단</label><input id="cxT" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.target)}" placeholder="${A > 0 && P > 0 ? cxFmt(Math.round((A - (A - P) / 2) * 100) / 100) : ""}"></div>
+      <div class="field"><label for="cxTP">살 가격 (비우면 현재가)</label><input id="cxTP" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.tp)}"></div></div>
       ${T > 0 && !(q0) ? `<p class="note warn" style="margin:0">목표 평단은 <b>살 가격과 지금 평단 사이</b>여야 해요. (살 가격 ${cxP(BP)} · 평단 ${cxP(A)})</p>` : ""}
       ${T > 0 && P > 0 ? `<div class="tablewrap"><table class="cx-rows"><thead><tr><th>살 가격</th><th>필요 수량</th><th>필요 금액</th><th class="hm">사고 나서 비중</th></tr></thead><tbody>${[0, -0.05, -0.1, -0.2].map(d => { const bp = (Number(calc.tp) || P) * (1 + d); const q = need(bp); const qq = q == null ? null : Math.ceil(q * (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1)) / (cxIsFrac() && calc.ccy === "USD" ? 10000 : 1);
         return `<tr><td class="n">${cxP(bp)}${d ? ` <span class="muted" style="font-size:11px">${fmtPct(d)}</span>` : ""}</td><td class="n"><b>${qq == null ? "—" : fmtQtyRaw(qq) + "주"}</b></td><td class="n">${qq == null ? "—" : cxMoney(qq * bp)}</td><td class="n hm">${qq == null ? "—" : cxWeight([{ p: bp, q: qq }])}</td></tr>`; }).join("")}</tbody></table></div>` : ""}`;
@@ -2681,9 +2696,9 @@ function renderCalc() {
     const fx = cxFx(); const M = Number(calc.cash) || 0; const BP = Number(calc.tp) || P;
     const inCcy = calc.cashCcy === calc.ccy ? M : calc.ccy === "USD" ? (fx ? M / fx : 0) : (fx ? M * fx : 0);
     const q = BP > 0 ? cxQ(inCcy / BP) : 0;
-    pane = `<div class="cx-grid"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" type="number" inputmode="decimal" step="any" value="${calc.cash ?? ""}" placeholder="1000000"></div>
+    pane = `<div class="cx-grid"><div class="field"><label for="cxCash">넣을 돈</label><input id="cxCash" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.cash)}" placeholder="1,000,000"></div>
       <div class="field"><span class="lbl">돈 단위</span><div class="seg" id="cxCashCcy"><button type="button" data-v="KRW" aria-pressed="${calc.cashCcy === "KRW"}">원</button><button type="button" data-v="USD" aria-pressed="${calc.cashCcy === "USD"}">달러</button></div></div>
-      <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" type="number" inputmode="decimal" step="any" value="${calc.tp ?? ""}"></div></div>
+      <div class="field"><label for="cxTP2">살 가격 (비우면 현재가)</label><input id="cxTP2" class="cxn" type="text" inputmode="decimal" autocomplete="off" value="${cxFmt(calc.tp)}"></div></div>
       ${M > 0 && BP > 0 ? `<p style="margin:0">→ ${cxP(BP)}에 <b>${fmtQtyRaw(q)}주</b> 살 수 있어요${calc.cashCcy !== calc.ccy && fx ? ` <span class="muted">(환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원)</span>` : ""}. 남는 돈 ${cxMoney(inCcy - q * BP)}</p>` : ""}`;
     if (q > 0) adds = [{ p: BP, q }];
   }
@@ -2710,18 +2725,41 @@ function cxWeight(adds) {
   const nowV = (calc.qty || 0) * P * k, aftV = ((calc.qty || 0) + addQ) * P * k; const others = inPf ? tot - nowV : tot; // 새 돈으로 산다고 보고 지금가로 평가
   return `${(nowV / (others + nowV) * 100).toFixed(1)}% → <b>${(aftV / (others + aftV) * 100).toFixed(1)}%</b>`;
 }
-$("cxHold").addEventListener("change", e => cxPick(e.target.value));
-[["cxQty", "qty"], ["cxAvg", "avg"], ["cxPx", "price"]].forEach(([id, f]) => $(id).addEventListener("input", e => { calc[f] = e.target.value === "" ? null : Number(e.target.value); saveCalc(); renderCalc(); }));
+$("cxHold").addEventListener("change", e => { $("cxSym").value = ""; $("cxSymMsg").hidden = true; cxPick(e.target.value); });
+async function cxLookup() {
+  const q = $("cxSym").value.trim(); if (!q) return; const msg = $("cxSymMsg"); msg.hidden = false; msg.textContent = `'${q}' 찾는 중…`;
+  try {
+    let sym = q.toUpperCase(), name = null;
+    if (/^\d{6}$/.test(q) || /^[0-9][0-9A-Z]{5}$/.test(sym)) sym = sym + ".KS";
+    else if (!/^[\^A-Z0-9.\-=]{1,12}$/.test(sym) || /[가-힣]/.test(q)) {
+      const r = await fetch(`/api/search?q=${encodeURIComponent(q)}`); const j = await r.json(); const it = (j.items || []).find(x => x.type !== "지수") || (j.items || [])[0];
+      if (!it) throw new Error("검색 결과가 없어요"); sym = it.symbol; name = it.name;
+    }
+    const held = allHoldings().find(h => h.key === sym);
+    if (held) { $("cxSym").value = ""; msg.hidden = true; await cxPick(sym); return; }
+    let r = await fetch(`/api/prices?symbol=${encodeURIComponent(sym)}`);
+    if (!r.ok && /\.KS$/.test(sym)) { sym = sym.replace(/\.KS$/, ".KQ"); r = await fetch(`/api/prices?symbol=${encodeURIComponent(sym)}`); }
+    const j = await r.json(); if (!r.ok) throw new Error(j.error || "가격을 불러오지 못했어요");
+    const cl = j.close.filter(v => v > 0); const last = cl[cl.length - 1];
+    calc.key = ""; calc.ccy = j.currency === "KRW" || /\.(KS|KQ)$/.test(sym) ? "KRW" : "USD"; calc.price = Math.round(last * 10000) / 10000;
+    calc.high = Math.max(...cl.slice(-252)); calc.levels = null; calc.qty = null; calc.avg = null; calc.rows = [{ p: calc.price, q: null }]; calc.tp = null;
+    msg.innerHTML = `<b>${esc(name || j.name || sym)}</b> (${esc(sym)}) 현재가 ${cxP(calc.price)} · 52주 고점 대비 ${fmtPct(calc.price / calc.high - 1, true)} — 보유 수량과 평단을 넣어 주세요.`;
+    saveCalc(); renderCalc(); $("cxQty").focus();
+  } catch (e) { msg.textContent = `찾지 못했어요: ${e.message}`; }
+}
+$("cxSymGo").addEventListener("click", cxLookup);
+$("cxSym").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); cxLookup(); } });
+[["cxQty", "qty"], ["cxAvg", "avg"], ["cxPx", "price"]].forEach(([id, f]) => $(id).addEventListener("input", e => { calc[f] = cxLive(e.target); saveCalc(); renderCalc(); }));
 $("cxCcy").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; calc.ccy = b.dataset.v; saveCalc(); renderCalc(); });
 $("cxMode").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; calc.mode = b.dataset.v; saveCalc(); renderCalc(); });
 $("cxPane").addEventListener("input", e => {
-  const t = e.target; const v = t.value === "" ? null : Number(t.value);
+  const t = e.target; const v = cxLive(t);
   if (t.dataset.cxRow != null) calc.rows[+t.dataset.cxRow][t.dataset.f] = v;
   else if (t.id === "cxT") calc.target = v; else if (t.id === "cxTP" || t.id === "cxTP2") calc.tp = v; else if (t.id === "cxCash") calc.cash = v;
-  saveCalc(); const id = t.id, row = t.dataset.cxRow, f = t.dataset.f, pos = t.selectionStart;
+  saveCalc(); const id = t.id, row = t.dataset.cxRow, f = t.dataset.f, text = t.value, pos = t.selectionStart;
   renderCalc();
   const el = id ? $(id) : $("cxPane").querySelector(`[data-cx-row="${row}"][data-f="${f}"]`);
-  if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} }
+  if (el) { el.value = text; el.focus(); try { el.setSelectionRange(pos, pos); } catch (er) {} }
 });
 $("cxPane").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return; const P = calc.price;
