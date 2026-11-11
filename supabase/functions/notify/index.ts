@@ -14,7 +14,7 @@ Deno.serve(async (req) => {
   const { data: accs } = await db.from("planner_accounts").select("tg_chat_id").not("tg_chat_id", "is", null);
   let sent = 0; const errors: string[] = [];
   for (const a of accs || []) {
-    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: a.tg_chat_id, text, disable_web_page_preview: true }) });
+    const r = await fetch(`https://api.telegram.org/bot${TOKEN}/sendMessage`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: a.tg_chat_id, text, disable_web_page_preview: true, ...(body?.html ? { parse_mode: "HTML" } : {}) }) });
     const j = await r.json().catch(() => ({}));
     if (j.ok) sent++; else errors.push(j.description || String(r.status));
   }
