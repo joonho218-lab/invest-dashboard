@@ -209,26 +209,36 @@ async function refreshMarket(market: string, extra: string[], out: any) {
   }
   return syms.map((s) => byS[s]).filter((r) => r && r.last_price);
 }
+const escH = (s: unknown) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const STAGE_ICON = ["", "🟡", "🟠", "🔴", "🟣", "⚫"];
+const LINE = "━━━━━━━━━━━━━━";
+// 장 마감 낙폭 리포트: 단계별로 묶어서 (깊은 단계부터), 종목마다 2줄
 function reportText(market: string, rows: any[], names: Record<string, string>, site: string | null) {
   const asof = rows.map((r) => r.asof).sort().pop();
   const zone = (r: any) => (r.depths || []).filter((d: number) => -r.dd >= d - 1e-9).length;
-  const line = (r: any) => {
-    const z = zone(r); const D: number[] = r.depths || [];
+  const item = (r: any) => {
+    const z = zone(r); const D: number[] = r.depths || []; const px = Number(r.last_price);
     const next = z < D.length ? r.high52 * (1 - D[z]) : null;
-    const nm = names[r.symbol] || r.symbol;
-    return `• ${nm} ${fmtP(Number(r.last_price))} ${pct(Number(r.dd))}${z ? ` · ${z}단계 구간` : ""}${next ? ` → ${z + 1}단계 ${fmtP(next)} (${pct(next / r.last_price - 1)})` : z ? " · 최대 낙폭 넘어섬" : ""}`;
+    const nm = escH(names[r.symbol] || r.symbol);
+    return `<b>${nm}</b>  ${fmtP(px)}  <b>${pct(Number(r.dd))}</b>\n   ${next ? `└ 다음 ${z + 1}단계 ${fmtP(next)} (${pct(next / px - 1)} 더)` : "└ 과거 최대 낙폭을 넘어섬"}`;
   };
-  const inZone = rows.filter((r) => zone(r) > 0).sort((a, b) => a.dd - b.dd);
+  const parts = [`📊 <b>${market === "US" ? "미국장" : "국장"} 마감 낙폭</b> · ${asof} 종가`, `52주 고점 대비 하락폭 · 과거 하락 기준 매수 단계`];
+  let shown = 0;
+  for (let z = 5; z >= 1; z--) {
+    const g = rows.filter((r) => zone(r) === z).sort((a, b) => a.dd - b.dd);
+    if (!g.length) continue; shown += g.length;
+    parts.push(`\n${LINE}\n${STAGE_ICON[z]} <b>${z}단계 구간</b> · ${g.length}개\n${LINE}\n${g.map(item).join("\n\n")}`);
+  }
   const near = rows.filter((r) => zone(r) === 0 && r.depths && (r.high52 * (1 - r.depths[0])) / r.last_price - 1 > -0.05).sort((a, b) => a.dd - b.dd);
+  if (near.length) { shown += near.length; parts.push(`\n${LINE}\n👀 <b>1단계까지 5% 이내</b> · ${near.length}개\n${LINE}\n${near.map(item).join("\n\n")}`); }
+  if (!shown) parts.push(`\n지금은 1단계 가까이 내려온 종목이 없어요.`);
   const noLv = rows.filter((r) => !r.depths);
-  const rest = rows.length - inZone.length - near.length - noLv.length;
-  const parts = [`📊 ${market === "US" ? "미국장" : "국장"} 마감 낙폭 · ${asof} 종가`, "52주 고점 대비 하락폭과 과거 기준 매수 단계"];
-  if (inZone.length) parts.push(`\n🔥 1단계 이상 내려온 종목\n${inZone.map(line).join("\n")}`);
-  if (near.length) parts.push(`\n👀 1단계까지 5% 이내\n${near.map(line).join("\n")}`);
-  if (!inZone.length && !near.length) parts.push("\n지금은 1단계 가까이 내려온 종목이 없어요.");
-  if (rest > 0) parts.push(`\n그 외 ${rest}개는 1단계까지 5% 넘게 남았어요.`);
-  if (noLv.length) parts.push(`\n📉 상장 기간이 짧아 단계 없이 낙폭만: ${noLv.map((r) => `${names[r.symbol] || r.symbol} ${pct(Number(r.dd))}`).join(", ")}`);
-  if (site) parts.push(`\n계획 세우기: ${site.replace(/\/$/, "")}`);
+  const rest = rows.length - shown - noLv.length;
+  const tail: string[] = [];
+  if (rest > 0) tail.push(`그 외 ${rest}개는 1단계까지 5% 넘게 남았어요.`);
+  if (noLv.length) tail.push(`📉 상장 기간이 짧아 낙폭만: ${noLv.map((r) => `${escH(names[r.symbol] || r.symbol)} ${pct(Number(r.dd))}`).join(", ")}`);
+  if (site) tail.push(`<a href="${escH(site.replace(/\/$/, ""))}">계획 세우기 ›</a>`);
+  if (tail.length) parts.push(`\n${LINE}\n${tail.join("\n")}`);
   return parts.join("\n");
 }
 
@@ -267,8 +277,9 @@ Deno.serve(async (req) => {
         const { data: prev } = await db.from("planner_alert_log").select("level_price,sent_at").eq("account_id", acc.id).eq("symbol", t.symbol).eq("level_key", h.key).order("sent_at", { ascending: false }).limit(1);
         const p0 = prev?.[0];
         if (p0 && Math.abs(Number(p0.level_price) / h.price - 1) < 0.005 && Date.now() - Date.parse(p0.sent_at) < 7 * 864e5) continue;
-        const icon = h.kind === "buy" ? "🔴 매수 차례" : h.kind === "trail" ? "🟢 추세 정리" : "🟢 매도 차례";
-        lines.push(` ${icon}: ${h.label} ${fmtP(h.price)}${h.q ? ` → ${fmtQ(h.q)}주` : ""}`);
+        const icon = h.kind === "buy" ? "🔴 <b>매수 차례</b>" : h.kind === "trail" ? "🟢 <b>추세 정리</b>" : "🟢 <b>매도 차례</b>";
+        lines.push(`${icon} · ${escH(h.label)}
+   └ ${fmtP(h.price)}${h.q ? ` · <b>${fmtQ(h.q)}주</b>` : ""}`);
         if (h.q > 0) {
           // 이미 지나친 단계는 지금 가격으로 체결된다고 보고 기록 (매수는 더 싸게, 매도는 더 비싸게)
           const fp = h.kind === "buy" ? Math.min(h.price, px.price) : h.kind === "trail" ? px.price : Math.max(h.price, px.price);
@@ -279,18 +290,18 @@ Deno.serve(async (req) => {
       }
       if (lines.length) {
         const nm = String(t.name || t.symbol).replace(/\s*\([^)]*\)$/, "");
-        const dd = t.levels?.high ? ` (52주 고점 대비 ${pct(px.price / t.levels.high - 1)})` : "";
+        const dd = t.levels?.high ? ` · 고점 대비 ${pct(px.price / t.levels.high - 1)}` : "";
         const when = mode === "live" ? `지금 ${new Date((px.time + px.off) * 1000).toISOString().slice(11, 16)} 현지` : `${px.date} 종가`;
-        const link = acc.site_url ? `\n ${acc.site_url.replace(/\/$/, "")}/?t=${encodeURIComponent(t.symbol.replace(/\.(KS|KQ)$/, ""))}#log` : "";
-        blocks.push(`${nm} ${t.symbol !== nm ? `(${t.symbol}) ` : ""}${fmtP(px.price)}${dd} · ${when}\n${lines.join("\n")}${link}`);
+        const link = acc.site_url ? `\n<a href="${escH(acc.site_url.replace(/\/$/, ""))}/?t=${encodeURIComponent(t.symbol.replace(/\.(KS|KQ)$/, ""))}#log">진행 상황 보기 ›</a>` : "";
+        blocks.push(`<b>${escH(nm)}</b>${t.symbol !== nm ? ` (${escH(t.symbol)})` : ""}\n${fmtP(px.price)}${dd} · ${when}\n\n${lines.join("\n\n")}${link}`);
       }
     }
     if (blocks.length) {
-      const head = mode === "live" ? "⚡ 장중 분할매수 알림 (실시간 · 수 분 늦을 수 있음)" : "📌 분할매수 알림 (장 마감)";
-      const text = `${head}\n\n${blocks.join("\n\n")}\n\n주문이 체결됐으면 아래 ✅ 버튼을 누르세요. 매매 기록과 보유 현황에 바로 반영되고 다음 단계 수량이 다시 계산됩니다. (가격·수량이 다르면 사이트 '진행 상황'에서 고칠 수 있어요)`;
+      const head = mode === "live" ? "⚡ <b>장중 분할매수 알림</b> (실시간 · 수 분 늦을 수 있음)" : "📌 <b>분할매수 알림</b> (장 마감)";
+      const text = `${head}\n${LINE}\n${blocks.join(`\n${LINE}\n`)}\n${LINE}\n주문이 체결됐으면 아래 ✅ 버튼을 누르세요. 매매 기록과 보유 현황에 바로 반영돼요.`;
       out.sent.push({ account: acc.id, kind: mode, text });
       if (!dry) {
-        try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, disable_web_page_preview: true, ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) }); await db.from("planner_alert_log").insert(logRows); }
+        try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, parse_mode: "HTML", disable_web_page_preview: true, ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) }); await db.from("planner_alert_log").insert(logRows); }
         catch (e) { out.errors.push(`send: ${(e as Error).message}`); }
       }
     }
@@ -309,7 +320,7 @@ Deno.serve(async (req) => {
         if (!list.length) continue;
         const text = reportText(m, list, names, acc.site_url);
         out.sent.push({ account: acc.id, kind: "report", text });
-        if (!dry) { try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, disable_web_page_preview: true }); } catch (e) { out.errors.push(`report: ${(e as Error).message}`); } }
+        if (!dry) { try { await tg("sendMessage", { chat_id: acc.tg_chat_id, text, parse_mode: "HTML", disable_web_page_preview: true }); } catch (e) { out.errors.push(`report: ${(e as Error).message}`); } }
       }
     }
   }
