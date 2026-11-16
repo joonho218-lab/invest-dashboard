@@ -1528,6 +1528,20 @@ function loadText(text, fname) {
 }
 function readFile(f) { const fr = new FileReader(); fr.onload = () => loadText(String(fr.result), f.name); fr.onerror = () => setStatus("파일을 읽지 못했습니다.", true); fr.readAsText(f); }
 
+// 종목 이름은 한국어로 통일: 저장된 한글 이름 → 자주 보는 종목 표 → (국내) 네이버 검색 → 없으면 Yahoo 이름
+const KO_NAMES = { TSLA: "테슬라", HOOD: "로빈후드", PLTR: "팔란티어", NVDA: "엔비디아", MU: "마이크론", AAPL: "애플", MSFT: "마이크로소프트", AMZN: "아마존", META: "메타", GOOGL: "알파벳 A", GOOG: "알파벳 C", AVGO: "브로드컴", TSM: "TSMC", AMD: "AMD", SNDK: "샌디스크", DELL: "델 테크놀로지스", RKLB: "로켓랩", COIN: "코인베이스", MSTR: "스트래티지", NFLX: "넷플릭스", ORCL: "오라클", INTC: "인텔", IONQ: "아이온큐", SOFI: "소파이", UBER: "우버", CRWD: "크라우드스트라이크", ARM: "ARM", ASML: "ASML", QQQ: "인베스코 나스닥100", QQQM: "인베스코 나스닥100 M", SPY: "SPDR S&P500", VOO: "뱅가드 S&P500", SCHD: "슈왑 미국배당", GLD: "SPDR 금", IEF: "아이셰어즈 미국 중기채", TLT: "아이셰어즈 미국 장기채", SOXX: "아이셰어즈 반도체", SMH: "반에크 반도체", QLD: "나스닥100 2배 (ProShares)", TQQQ: "나스닥100 3배 (ProShares)", SOXL: "반도체 3배 (Direxion)" };
+const hasKo = s => /[가-힣]/.test(String(s || ""));
+async function koNameFor(sym, given) {
+  sym = String(sym || "").toUpperCase(); const short = sym.replace(/\.(KS|KQ)$/, "");
+  if (hasKo(given)) return given;
+  const p = (loadStore().plans || {})[sym]; if (p && hasKo(p.name)) return String(p.name).replace(/\s*\([^)]*\)$/, "");
+  if (KO_NAMES[short]) return KO_NAMES[short];
+  try { for (const [, items] of [...FAVS.us, ...FAVS.kr]) for (const [s0, n] of items) if (s0 === short && hasKo(n)) return n; } catch (e) {}
+  if (/\.(KS|KQ)$/.test(sym) || /^[0-9][0-9A-Z]{5}$/.test(short)) {
+    try { const r = await fetch(`/api/search?q=${encodeURIComponent(short)}`); const j = await r.json(); const it = (j.items || []).find(x => String(x.symbol).replace(/\.(KS|KQ)$/, "") === short && hasKo(x.name)); if (it) return it.name; } catch (e) {}
+  }
+  return null;
+}
 async function fetchTicker(sym, displayName) {
   sym = String(sym || "").trim().toUpperCase(); if (!sym) return;
   setStatus(`${sym} 가격을 불러오는 중…`);
@@ -1539,7 +1553,9 @@ async function fetchTicker(sym, displayName) {
     const series = j.dates.map((d, i) => [d, j.close[i]]);
     assertDaily(series);
     if (series.length < 260) throw new Error(`${sym}: 거래일이 ${series.length}일뿐이라 52주 고점을 계산할 수 없습니다.`);
-    const label = displayName ? `${displayName} (${j.symbol})` : j.name && j.name !== j.symbol ? `${j.name} (${j.symbol})` : j.symbol;
+    const ko = await koNameFor(j.symbol || sym, displayName);
+    const nm = ko || displayName || (j.name && j.name !== j.symbol ? j.name : "");
+    const label = nm ? `${nm} (${j.symbol})` : j.symbol;
     setData(label, series, false, true, { ccy: j.currency, source: j.source });
     setStatus($("status").textContent + ` · 출처 ${j.source}`);
     $("ticker").value = sym; updYahoo();
