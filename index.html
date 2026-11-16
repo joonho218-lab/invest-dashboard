@@ -1531,12 +1531,22 @@ function readFile(f) { const fr = new FileReader(); fr.onload = () => loadText(S
 // 종목 이름은 한국어로 통일: 저장된 한글 이름 → 자주 보는 종목 표 → (국내) 네이버 검색 → 없으면 Yahoo 이름
 const KO_NAMES = { TSLA: "테슬라", HOOD: "로빈후드", PLTR: "팔란티어", NVDA: "엔비디아", MU: "마이크론", AAPL: "애플", MSFT: "마이크로소프트", AMZN: "아마존", META: "메타", GOOGL: "알파벳 A", GOOG: "알파벳 C", AVGO: "브로드컴", TSM: "TSMC", AMD: "AMD", SNDK: "샌디스크", DELL: "델 테크놀로지스", RKLB: "로켓랩", COIN: "코인베이스", MSTR: "스트래티지", NFLX: "넷플릭스", ORCL: "오라클", INTC: "인텔", IONQ: "아이온큐", SOFI: "소파이", UBER: "우버", CRWD: "크라우드스트라이크", ARM: "ARM", ASML: "ASML", QQQ: "인베스코 나스닥100", QQQM: "인베스코 나스닥100 M", SPY: "SPDR S&P500", VOO: "뱅가드 S&P500", SCHD: "슈왑 미국배당", GLD: "SPDR 금", IEF: "아이셰어즈 미국 중기채", TLT: "아이셰어즈 미국 장기채", SOXX: "아이셰어즈 반도체", SMH: "반에크 반도체", QLD: "나스닥100 2배 (ProShares)", TQQQ: "나스닥100 3배 (ProShares)", SOXL: "반도체 3배 (Direxion)" };
 const hasKo = s => /[가-힣]/.test(String(s || ""));
+function koKnown(short) {
+  if (KO_NAMES[short]) return KO_NAMES[short];
+  try { for (const [, items] of [...FAVS.us, ...FAVS.kr]) for (const [s0, n] of items) if (s0 === short && hasKo(n)) return n; } catch (e) {}
+  return null;
+}
+// 저장·동기화 직전에 영어 이름이 한글 이름을 덮어쓰지 않게
+function koLabel(name, key, prevName) {
+  if (hasKo(name)) return name;
+  if (hasKo(prevName)) return prevName;
+  const k = koKnown(String(key || "").replace(/\.(KS|KQ)$/, "")); return k ? `${k} (${key})` : name;
+}
 async function koNameFor(sym, given) {
   sym = String(sym || "").toUpperCase(); const short = sym.replace(/\.(KS|KQ)$/, "");
   if (hasKo(given)) return given;
   const p = (loadStore().plans || {})[sym]; if (p && hasKo(p.name)) return String(p.name).replace(/\s*\([^)]*\)$/, "");
-  if (KO_NAMES[short]) return KO_NAMES[short];
-  try { for (const [, items] of [...FAVS.us, ...FAVS.kr]) for (const [s0, n] of items) if (s0 === short && hasKo(n)) return n; } catch (e) {}
+  const k0 = koKnown(short); if (k0) return k0;
   if (/\.(KS|KQ)$/.test(sym) || /^[0-9][0-9A-Z]{5}$/.test(short)) {
     try { const r = await fetch(`/api/search?q=${encodeURIComponent(short)}`); const j = await r.json(); const it = (j.items || []).find(x => String(x.symbol).replace(/\.(KS|KQ)$/, "") === short && hasKo(x.name)); if (it) return it.name; } catch (e) {}
   }
@@ -1896,6 +1906,7 @@ function savePlan(forceWatch) {
   const key = tradeKey(); const prev = s.plans[key] || {};
   const hasTrades = ((s.trades || {})[key] || []).length > 0;
   const settings = pickSettings(), watch = forceWatch ? true : prev.watch === true || (prev.watch !== false && hasTrades);
+  const nm = koLabel(state.name, key, prev.name); if (nm !== state.name) state.name = nm;
   const sig = planSig(state.name, state.priceCcy, settings, watch, (s.trades || {})[key] || []);
   if (prev.sig === sig) return;
   s.plans[key] = { name: state.name, ccy: state.priceCcy, settings, watch, since: watch ? (prev.since || new Date().toISOString().slice(0, 10)) : null, t: Date.now(), sig };
@@ -1903,6 +1914,7 @@ function savePlan(forceWatch) {
 }
 function restorePlan() {
   const p = (loadStore().plans || {})[tradeKey()]; if (!p || !p.settings) return false;
+  if (!hasKo(state.name) && hasKo(p.name) && p.name.endsWith(`(${tradeKey()})`)) state.name = p.name;
   SETTING_KEYS.forEach(k => { if (p.settings[k] !== undefined && p.settings[k] !== null || k === "budget" || k === "fx" || k === "fromYear") state[k] = clone(p.settings[k]); });
   if (p.settings.fromStage == null) state.fromStage = 1;
   applySettingsToUI(); return true;
@@ -2084,7 +2096,7 @@ function levelsFromLadder(r, L, hasPos) {
 }
 function rowFor(key) {
   const s = loadStore(); const p = (s.plans || {})[key]; if (!p) return null;
-  return { symbol: key, name: p.name, ccy: p.ccy, plan: p.settings, trades: (s.trades || {})[key] || [], watch: p.watch !== false, updated_at: new Date(p.t || Date.now()).toISOString(), levels: levelsCache[key] };
+  return { symbol: key, name: koLabel(p.name, key), ccy: p.ccy, plan: p.settings, trades: (s.trades || {})[key] || [], watch: p.watch !== false, updated_at: new Date(p.t || Date.now()).toISOString(), levels: levelsCache[key] };
 }
 const pushTimers = {}; const levelSig = {};
 function queuePlanPush(key) {
@@ -2124,7 +2136,8 @@ async function pullSync() {
     if (!local || (local.t || 0) < rt - 1000) {
       const had = new Set(((s.trades || {})[t.symbol] || []).map(x => String(x.id)));
       (t.trades || []).forEach(x => { if (x.via === "telegram" && !had.has(String(x.id))) pulledFills.push({ name: t.name, ...x }); });
-      s.plans[t.symbol] = { name: t.name, ccy: t.ccy, settings: t.plan, watch: t.watch, since: local && local.since || null, t: rt, sig: planSig(t.name, t.ccy, t.plan, t.watch, t.trades || []) };
+      const tn = koLabel(t.name, t.symbol, local && local.name);
+      s.plans[t.symbol] = { name: tn, ccy: t.ccy, settings: t.plan, watch: t.watch, since: local && local.since || null, t: rt, sig: planSig(tn, t.ccy, t.plan, t.watch, t.trades || []) };
       s.trades[t.symbol] = t.trades || []; changed = true;
     }
   }
