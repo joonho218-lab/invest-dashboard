@@ -2502,6 +2502,31 @@ $("holdBody").addEventListener("click", (e) => {
 });
 
 /* ---------- boot ---------- */
+// 예전에 영어로 저장된 이름(즐겨찾기·최근 불러온 종목·계획)을 한 번 한국어로 바꿈
+(function koMigrate() {
+  const s = loadStore(); let favChanged = false, changed = false;
+  const plans = s.plans || {};
+  const koOf = (sym) => { sym = String(sym || "").toUpperCase(); const short = sym.replace(/\.(KS|KQ)$/, "");
+    const p = plans[sym] || plans[short + ".KS"] || plans[short + ".KQ"] || plans[short];
+    if (p && hasKo(p.name)) return String(p.name).replace(/\s*\([^)]*\)$/, "");
+    return koKnown(short); };
+  Object.keys(plans).forEach(k => { const n = koLabel(plans[k].name, k); if (n !== plans[k].name) { plans[k].name = n; plans[k].sig = null; changed = true; } });
+  (s.favs || []).forEach(f => { if (hasKo(f.name)) return; const k = koOf(f.ysym || f.sym); if (k) { f.name = k; favChanged = changed = true; } });
+  if (s.sets) {
+    const out = {}, bySym = {};
+    Object.keys(s.sets).forEach(n => {
+      const m = n.match(/\(([^)]+)\)$/); const sym = m ? m[1] : null;
+      let nn = n; if (sym && !hasKo(n)) { const k = koOf(sym); if (k) nn = `${k} (${sym})`; }
+      const key = sym || nn; const prev = bySym[key];
+      if (prev && out[prev].t >= s.sets[n].t) { changed = true; return; }
+      if (prev) delete out[prev];
+      out[nn] = s.sets[n]; bySym[key] = nn; if (nn !== n || prev) changed = true;
+    });
+    s.sets = out;
+  }
+  if (changed) saveStore(s);
+  if (favChanged) setTimeout(() => pushPrefs(), 3000);
+})();
 renderRecent();
 const qT = new URLSearchParams(location.search).get("t");
 const st0 = loadStore();
