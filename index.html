@@ -337,9 +337,11 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .holdt .pin { display: none; } .holdt .ws { display: none; }
 .holdt .zb { font-weight: 700; }
 @media (max-width: 640px) {
-  .holdt { min-width: 0; font-size: 12px; } .holdt td, .holdt th { padding: 6px 4px; }
+  .holdt { min-width: 0; font-size: 12px; } .holdt td, .holdt th { padding: 6px 3px; }
+  #holdSort button { padding: 5px 9px; font-size: 12px; } #holdSort .sl { display: none; }
   .holdt .hm, .holdt .code, .holdt .pa, .holdt .wf { display: none; } .holdt .ws { display: inline; } .holdt .pin { display: inline; } .holdt .pp { margin-left: 0; font-size: 12px; }
-  .holdt td:first-child { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
+  .holdt td:first-child { max-width: 30vw; overflow: hidden; text-overflow: ellipsis; white-space: normal; word-break: keep-all; overflow-wrap: anywhere; line-height: 1.25; }
+  .holdt td:first-child .alink { white-space: normal; text-align: left; font-size: 13px; }
 }
 .holdt .alink { border: 0; background: none; padding: 0; cursor: pointer; color: var(--ink); font-size: 14px; text-align: left; }
 .holdt .alink:hover b { text-decoration: underline; }
@@ -431,8 +433,9 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
       <div class="row" style="gap:6px">
         <div class="seg" id="holdSort" role="group" aria-label="정렬">
           <button type="button" data-v="value" aria-pressed="true">평가금액순</button>
-          <button type="button" data-v="dd" aria-pressed="false">고점 대비 하락순</button>
+          <button type="button" data-v="dd" aria-pressed="false">고점<span class="sl"> 대비 하락</span>순</button>
           <button type="button" data-v="pnl" aria-pressed="false">수익률순</button>
+          <button type="button" data-v="day" aria-pressed="false">전일<span class="sl"> 대비</span>순</button>
         </div>
         <button class="btn" id="holdMask" type="button" aria-pressed="false">금액 가리기</button>
         <button class="btn" id="holdFold" type="button" aria-controls="holdBodyWrap" aria-expanded="true">접기</button>
@@ -443,7 +446,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <div class="holdsum" id="holdSum"></div>
     <div class="tablewrap">
       <table class="holdt" aria-label="보유 종목">
-        <thead><tr><th>종목</th><th class="hm">수량</th><th class="hm">평단</th><th class="hm">현재가</th><th>평가금액</th><th>손익</th><th>고점 대비</th><th class="hm" style="text-align:left">계획</th></tr></thead>
+        <thead><tr><th>종목</th><th class="hm">수량</th><th class="hm">평단</th><th class="hm">현재가</th><th>평가금액</th><th>전일<span class="hm"> 대비</span></th><th>손익</th><th>고점<span class="hm"> 대비</span></th><th class="hm" style="text-align:left">계획</th></tr></thead>
         <tbody id="holdBody"></tbody>
       </table>
     </div>
@@ -1947,6 +1950,7 @@ function summarize(L) {
 }
 const alertCache = {};
 const fmtQtyRaw = (q) => (Math.round(q * 10000) / 10000).toLocaleString("ko-KR", { maximumFractionDigits: 4 });
+const prevClose = r => r && r.c && r.c.length > 1 ? r.c[r.c.length - 2] : null; // 직전 거래일 종가
 async function computeAlert(key, plan) {
   let series = null, ccy = plan.ccy;
   if (location.protocol.startsWith("http") && /^[\^A-Z0-9.\-=]{1,20}$/.test(key)) {
@@ -1956,12 +1960,13 @@ async function computeAlert(key, plan) {
   if (!series) return { key, error: "가격을 불러오지 못했습니다" };
   if (series.length < 260) { // 상장 1년 미만: 단계는 못 구하지만 상장 후 고점 대비 하락폭은 보여준다
     const last = series[series.length - 1]; const hi = Math.max(...series.map(x => x[1]));
-    return { key, price: last[1], asof: last[0], dd: last[1] / hi - 1, short: true, levels: [], sum: { due: [], nextBuy: null, nextSell: null } };
+    const pv = series[series.length - 2];
+    return { key, price: last[1], asof: last[0], prev: pv ? pv[1] : null, dd: last[1] / hi - 1, short: true, levels: [], sum: { due: [], nextBuy: null, nextSell: null } };
   }
   return withState({ ...plan.settings, name: plan.name, priceCcy: ccy === "KRW" ? "KRW" : "USD", isExample: false }, () => {
     const r = analyze(series, state); const alloc = allocate(r.stages, r.price); const model = buildModel(r); const sp = sellPlan(r, alloc, model);
     const L = buildLadder(r, model, sp); queueLevels(key, levelsFromLadder(r, L, model.pos.qty > 0));
-    return { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg, levels: r.stages.map(x => x.L), high: r.high };
+    return { key, price: r.price, asof: r.asof, prev: prevClose(r), dd: r.dd, sum: summarize(L), qty: model.pos.qty, avg: model.pos.avg, levels: r.stages.map(x => x.L), high: r.high };
   });
 }
 function heldPlans() {
@@ -2013,9 +2018,9 @@ async function refreshAlerts() {
 function updateCurrentAlert(r) {
   if (state.isExample) { renderAlerts(); return; }
   const key = tradeKey();
-  if (!watchedPlans().some(([k]) => k === key) && lastModel && lastModel.pos.qty > 0) { alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high }; renderHoldings(); }
+  if (!watchedPlans().some(([k]) => k === key) && lastModel && lastModel.pos.qty > 0) { alertCache[key] = { key, price: r.price, asof: r.asof, prev: prevClose(r), dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high }; renderHoldings(); }
   if (watchedPlans().some(([k]) => k === key)) {
-    alertCache[key] = { key, price: r.price, asof: r.asof, dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high };
+    alertCache[key] = { key, price: r.price, asof: r.asof, prev: prevClose(r), dd: r.dd, sum: summarize(lastLadder), levels: r.stages.map(x => x.L), high: r.high };
     if (lastModel) queueLevels(key, levelsFromLadder(r, lastLadder, lastModel.pos.qty > 0));
   }
   renderAlerts();
@@ -2441,24 +2446,32 @@ function renderHoldings() {
     const cost = toK(h.pos.avg * h.pos.qty);
     const pnl = value != null && cost != null ? value - cost : null;
     const pr = price != null ? price / h.pos.avg - 1 : null;
+    const prev = a && a.prev ? a.prev : null; // 전일 대비: 각 시장의 마지막 거래일 vs 그 전 거래일 종가
+    const dayPct = price != null && prev ? price / prev - 1 : null;
+    const day = dayPct != null ? toK((price - prev) * h.pos.qty) : null;
     const z = a && a.levels ? a.levels.filter(v => -a.dd >= v - 1e-9).length : 0;
-    return { ...h, a, kr, usd, price, value, cost, pnl, pr, z, watch: watched.has(h.key) };
+    return { ...h, a, kr, usd, price, value, cost, pnl, pr, day, dayPct, z, watch: watched.has(h.key) };
   });
-  const key = { value: r => -(r.value || 0), dd: r => (r.a && r.a.dd != null ? r.a.dd : 1), pnl: r => (r.pr != null ? r.pr : 9) }[holdSort] || (r => 0);
+  const key = { value: r => -(r.value || 0), day: r => (r.dayPct != null ? r.dayPct : 9), dd: r => (r.a && r.a.dd != null ? r.a.dd : 1), pnl: r => (r.pr != null ? r.pr : 9) }[holdSort] || (r => 0);
   rows.sort((a, b) => key(a) - key(b));
   const M = "•••••";
   const won = v => v == null ? "—" : holdMask ? `${M}원` : `${Math.round(v).toLocaleString("ko-KR")}원`;
   const wonT = v => v == null || holdMask ? won(v) : `<span class="wf">${won(v)}</span><span class="ws">${Math.round(v / 1e4).toLocaleString("ko-KR")}만</span>`; // 휴대폰은 만원 단위
   const sgnWon = v => v == null ? "—" : holdMask ? `${M}원` : `${v >= 0 ? "+" : ""}${Math.round(v).toLocaleString("ko-KR")}원`;
-  const sum = (rs) => { const ok = rs.filter(r => r.value != null); if (!ok.length) return { v: null, c: null, p: null, pr: null }; const v = ok.reduce((s, r) => s + r.value, 0), c = ok.reduce((s, r) => s + (r.cost || 0), 0); return { v, c, p: v - c, pr: c ? v / c - 1 : null }; };
+  const sum = (rs) => { const ok = rs.filter(r => r.value != null); if (!ok.length) return { v: null, c: null, p: null, pr: null, d: null, dr: null }; const v = ok.reduce((s, r) => s + r.value, 0), c = ok.reduce((s, r) => s + (r.cost || 0), 0);
+    const od = ok.filter(r => r.day != null), d = od.length ? od.reduce((s, r) => s + r.day, 0) : null, dv = od.reduce((s, r) => s + r.value, 0);
+    return { v, c, p: v - c, pr: c ? v / c - 1 : null, d, dr: d != null && dv - d ? d / (dv - d) : null }; };
+  const dayCell = (d, dr, bold) => d == null ? "—" : `${bold ? "<b class=\"pa\">" : "<span class=\"pa\">"}${sgnWon(d)}${bold ? "</b>" : "</span>"}<span class="pp">${fmtPct(dr, true)}</span>`;
+  const cls = v => v == null ? "" : v < 0 ? "neg" : v > 0 ? "pos" : "";
   const all = sum(rows), us = sum(rows.filter(r => !r.kr)), kr = sum(rows.filter(r => r.kr));
   $("holdSum").innerHTML = `
     <span>총 평가 <b class="big">${won(all.v)}</b></span>
+    <span>전일 대비 <b class="${cls(all.d)}">${sgnWon(all.d)}${all.dr != null ? ` (${fmtPct(all.dr, true)})` : ""}</b></span>
     <span>손익 <b class="${all.p < 0 ? "neg" : "pos"}">${sgnWon(all.p)}${all.pr != null ? ` (${fmtPct(all.pr, true)})` : ""}</b></span>
     <span>${rows.length}종목${fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}</span>`;
   const deep = rows.filter(r => r.a && r.a.dd != null).sort((a, b) => a.a.dd - b.a.dd)[0];
   $("holdLine").hidden = !holdFold;
-  $("holdLine").innerHTML = holdFold ? `${rows.length}종목 · 총 평가 ${won(all.v)} · <b class="${all.p < 0 ? "neg" : "pos"}">${all.pr != null ? fmtPct(all.pr, true) : ""}</b>`
+  $("holdLine").innerHTML = holdFold ? `${rows.length}종목 · 총 평가 ${won(all.v)} · <b class="${all.p < 0 ? "neg" : "pos"}">${all.pr != null ? fmtPct(all.pr, true) : ""}</b>${all.dr != null ? ` · 전일 대비 <b class="${cls(all.d)}">${fmtPct(all.dr, true)}</b>` : ""}`
     : `고점 대비 1단계 이상 내려온 보유 종목 <b>${rows.filter(r => r.z > 0).length}개</b>${deep ? ` · 가장 많이 빠진 종목 <b>${esc(String(deep.p.name).replace(/\s*\([^)]*\)$/, ""))} ${fmtPct(deep.a.dd, true)}</b>` : ""}`;
   const rowHtml = r => {
     const nm = esc(String(r.p.name).replace(/\s*\([^)]*\)$/, "")), sym = esc(r.key); const a = r.a;
@@ -2470,6 +2483,7 @@ function renderHoldings() {
       <td class="n hm">${holdMask ? M : (r.usd ? "$" : "") + fmtP(r.pos.avg)}</td>
       <td class="n hm">${r.price != null ? (r.usd ? "$" : "") + fmtP(r.price) : "—"}</td>
       <td class="n">${wonT(r.value)}</td>
+      <td class="n ${cls(r.dayPct)}" ${r.a && r.a.asof ? `title="${esc(r.a.asof)} 종가(장중이면 현재가) 기준, 직전 거래일 종가 대비"` : ""}>${r.day != null ? dayCell(r.day, r.dayPct) : r.dayPct != null ? fmtPct(r.dayPct, true) : "—"}</td>
       <td class="n ${r.pr == null ? "" : r.pr < 0 ? "neg" : "pos"}">${r.pnl != null ? `<span class="pa">${sgnWon(r.pnl)}</span><span class="pp">${fmtPct(r.pr, true)}</span>` : r.pr != null ? fmtPct(r.pr, true) : "—"}</td>
       <td class="n">${ddCell}</td>
       <td class="hm" style="text-align:left">${planCell(r, sym)}</td>
@@ -2483,7 +2497,7 @@ function renderHoldings() {
     const due = r.a && r.a.sum ? r.a.sum.due.length : 0;
     return `<button type="button" class="ptag on" data-open="${sym}" title="계획 진행 중 · 눌러서 진행 상황 보기">📌 매수 ${nb}/${nst}${ns ? ` · 매도 ${ns}` : ""}</button>${due ? ` <b class="neg" style="font-size:12px">할 일 ${due}</b>` : ""}`;
   };
-  const group = (title, rs, s) => rs.length ? `<tr class="grp"><td><b>${title}</b> <span class="muted">${rs.length}<span class="hm">종목${all.v && s.v != null ? ` · 비중 ${(s.v / all.v * 100).toFixed(0)}%` : ""}</span></span></td><td class="hm"></td><td class="hm"></td><td class="hm"></td><td class="n"><b>${wonT(s.v)}</b></td><td class="n ${s.p < 0 ? "neg" : "pos"}"><b class="pa">${sgnWon(s.p)}</b>${s.pr != null ? `<span class="pp">${fmtPct(s.pr, true)}</span>` : ""}</td><td></td><td class="hm"></td></tr>` + rs.map(rowHtml).join("") : "";
+  const group = (title, rs, s) => rs.length ? `<tr class="grp"><td><b>${title}</b> <span class="muted">${rs.length}<span class="hm">종목${all.v && s.v != null ? ` · 비중 ${(s.v / all.v * 100).toFixed(0)}%` : ""}</span></span></td><td class="hm"></td><td class="hm"></td><td class="hm"></td><td class="n"><b>${wonT(s.v)}</b></td><td class="n ${cls(s.d)}">${dayCell(s.d, s.dr, true)}</td><td class="n ${s.p < 0 ? "neg" : "pos"}"><b class="pa">${sgnWon(s.p)}</b>${s.pr != null ? `<span class="pp">${fmtPct(s.pr, true)}</span>` : ""}</td><td></td><td class="hm"></td></tr>` + rs.map(rowHtml).join("") : "";
   $("holdBody").innerHTML = group("🇺🇸 미국", rows.filter(r => !r.kr), us) + group("🇰🇷 한국", rows.filter(r => r.kr), kr);
 }
 $("holdMask").addEventListener("click", () => { holdMask = !holdMask; try { localStorage.setItem("bunhal-holdmask", holdMask ? "1" : "0"); } catch (e) {} renderHoldings(); });
