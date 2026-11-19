@@ -331,6 +331,28 @@ td.warncell, .warncell { color: var(--down); font-size: 12px; }
 .holdt .ptag { border: 0; cursor: pointer; font-family: inherit; }
 .holdt .ptag.off { border: 1px solid var(--line); background: none; }
 .holdt .ptag:hover { text-decoration: underline; }
+.hsum { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 8px; }
+.hsum > div { border: 1px solid var(--line); border-radius: 12px; padding: 11px 14px; display: grid; gap: 3px; align-content: start; min-width: 0; }
+.hsum .k { font-size: 12px; color: var(--muted); }
+.hsum .v { font-family: var(--font-num); font-size: 19px; font-weight: 700; white-space: nowrap; }
+.hsum .sub { font-size: 12px; color: var(--muted); font-family: var(--font-num); }
+.hsum .sub.pos, .hsum .sub .pos { color: var(--up); } .hsum .sub.neg, .hsum .sub .neg { color: var(--down); }
+.hsum .hero .hv { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hsum .hero .v { font-size: 27px; }
+.hsum .hero.pos { color: var(--up); background: color-mix(in srgb, var(--up) 8%, var(--paper)); border-color: color-mix(in srgb, var(--up) 40%, var(--line)); }
+.hsum .hero.neg { color: var(--down); background: color-mix(in srgb, var(--down) 8%, var(--paper)); border-color: color-mix(in srgb, var(--down) 40%, var(--line)); }
+.hsum .hero .k { color: inherit; font-weight: 600; }
+.hsum .pill { font-family: var(--font-num); font-weight: 700; font-size: 15px; padding: 2px 9px; border-radius: 999px; background: color-mix(in srgb, currentColor 14%, transparent); }
+.hsum .meta { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); }
+.holdt th.pl, .holdt td.pl { background: color-mix(in srgb, var(--soft) 60%, transparent); }
+.holdt tr.grp td.pl { background: color-mix(in srgb, var(--ink) 5%, var(--soft)); }
+.holdt .plp { display: inline-block; font-family: var(--font-num); font-weight: 700; font-size: 13.5px; padding: 1px 8px; border-radius: 999px; background: color-mix(in srgb, currentColor 13%, transparent); }
+.holdt .pla { display: block; font-size: 11.5px; margin-top: 2px; font-family: var(--font-num); }
+.holdt tr.grp .pla { font-weight: 700; }
+@media (max-width: 640px) {
+  .hsum { grid-template-columns: 1fr 1fr; } .hsum .hero { grid-column: 1 / -1; } .hsum .hero .v { font-size: 25px; } .hsum .v { font-size: 16px; }
+  .holdt .plp { font-size: 12.5px; padding: 1px 6px; } .holdt .pla { font-size: 11px; }
+}
 .holdsum { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; font-size: 13px; color: var(--muted); }
 .holdsum b.big { font-size: 18px; color: var(--ink); font-family: var(--font-num); }
 .holdsum .neg, .holdsum .pos { font-family: var(--font-num); }
@@ -443,10 +465,10 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     </div>
     <p class="note" id="holdLine" style="margin:0" hidden></p>
     <div id="holdBodyWrap" style="display:grid;gap:8px">
-    <div class="holdsum" id="holdSum"></div>
+    <div class="hsum" id="holdSum"></div>
     <div class="tablewrap">
       <table class="holdt" aria-label="보유 종목">
-        <thead><tr><th>종목</th><th class="hm">수량</th><th class="hm">평단</th><th class="hm">현재가</th><th>평가금액</th><th>전일<span class="hm"> 대비</span></th><th>손익</th><th>고점<span class="hm"> 대비</span></th><th class="hm" style="text-align:left">계획</th></tr></thead>
+        <thead><tr><th>종목</th><th class="pl">손익</th><th>평가금액</th><th>전일<span class="hm"> 대비</span></th><th class="hm">수량</th><th class="hm">평단</th><th class="hm">현재가</th><th>고점<span class="hm"> 대비</span></th><th class="hm" style="text-align:left">계획</th></tr></thead>
         <tbody id="holdBody"></tbody>
       </table>
     </div>
@@ -2463,12 +2485,17 @@ function renderHoldings() {
     return { v, c, p: v - c, pr: c ? v / c - 1 : null, d, dr: d != null && dv - d ? d / (dv - d) : null }; };
   const dayCell = (d, dr, bold) => d == null ? "—" : `${bold ? "<b class=\"pa\">" : "<span class=\"pa\">"}${sgnWon(d)}${bold ? "</b>" : "</span>"}<span class="pp">${fmtPct(dr, true)}</span>`;
   const cls = v => v == null ? "" : v < 0 ? "neg" : v > 0 ? "pos" : "";
+  const sgnWonT = v => v == null || holdMask ? sgnWon(v) : `<span class="wf">${sgnWon(v)}</span><span class="ws">${v >= 0 ? "+" : "−"}${Math.abs(Math.round(v / 1e4)).toLocaleString("ko-KR")}만</span>`;
+  const pnlCell = (p, pr) => pr == null ? "—" : `<b class="plp">${fmtPct(pr, true)}</b>${p != null ? `<span class="pla">${sgnWonT(p)}</span>` : ""}`;
   const all = sum(rows), us = sum(rows.filter(r => !r.kr)), kr = sum(rows.filter(r => r.kr));
+  const splitPct = (lbl, x) => x.pr != null ? `<span class="${cls(x.p)}">${lbl} ${fmtPct(x.pr, true)}</span>` : "";
   $("holdSum").innerHTML = `
-    <span>총 평가 <b class="big">${won(all.v)}</b></span>
-    <span>전일 대비 <b class="${cls(all.d)}">${sgnWon(all.d)}${all.dr != null ? ` (${fmtPct(all.dr, true)})` : ""}</b></span>
-    <span>손익 <b class="${all.p < 0 ? "neg" : "pos"}">${sgnWon(all.p)}${all.pr != null ? ` (${fmtPct(all.pr, true)})` : ""}</b></span>
-    <span>${rows.length}종목${fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}</span>`;
+    <div class="hero ${cls(all.p)}"><span class="k">총 손익</span>
+      <div class="hv"><b class="v">${sgnWon(all.p)}</b>${all.pr != null ? `<span class="pill">${fmtPct(all.pr, true)}</span>` : ""}</div>
+      <span class="sub">${[splitPct("🇺🇸 미국", us), splitPct("🇰🇷 한국", kr)].filter(Boolean).join(" · ")}</span></div>
+    <div><span class="k">총 평가</span><b class="v">${won(all.v)}</b><span class="sub">원금 ${won(all.c)}</span></div>
+    <div><span class="k">전일 대비</span><b class="v ${cls(all.d)}">${sgnWon(all.d)}</b><span class="sub ${cls(all.d)}">${all.dr != null ? fmtPct(all.dr, true) : ""}</span></div>
+    <p class="meta">${rows.length}종목${fx ? ` · 환율 ${fx.toLocaleString("ko-KR", { maximumFractionDigits: 1 })}원` : ""}</p>`;
   const deep = rows.filter(r => r.a && r.a.dd != null).sort((a, b) => a.a.dd - b.a.dd)[0];
   $("holdLine").hidden = !holdFold;
   $("holdLine").innerHTML = holdFold ? `${rows.length}종목 · 총 평가 ${won(all.v)} · <b class="${all.p < 0 ? "neg" : "pos"}">${all.pr != null ? fmtPct(all.pr, true) : ""}</b>${all.dr != null ? ` · 전일 대비 <b class="${cls(all.d)}">${fmtPct(all.dr, true)}</b>` : ""}`
@@ -2479,12 +2506,12 @@ function renderHoldings() {
       : `${r.z ? `<span class="ddb z hm">${r.z}단계</span> ` : ""}<span class="${a.dd < 0 ? "neg" : ""}${r.z ? " zb" : ""}" ${a.short ? 'title="상장 1년 미만: 상장 후 고점 기준"' : ""}>${fmtPct(a.dd, true)}${a.short ? "*" : ""}</span>`;
     return `<tr>
       <td>${r.watch ? '<span class="pin" title="계획 진행 중">📌</span>' : ""}<button type="button" class="alink" data-key="${sym}"><b>${nm}</b></button><span class="code">${sym.replace(/\.(KS|KQ)$/, "")}</span></td>
+      <td class="n pl ${cls(r.pr)}">${pnlCell(r.pnl, r.pr)}</td>
+      <td class="n">${wonT(r.value)}</td>
+      <td class="n ${cls(r.dayPct)}" ${r.a && r.a.asof ? `title="${esc(r.a.asof)} 종가(장중이면 현재가) 기준, 직전 거래일 종가 대비"` : ""}>${r.day != null ? dayCell(r.day, r.dayPct) : r.dayPct != null ? fmtPct(r.dayPct, true) : "—"}</td>
       <td class="n hm">${holdMask ? M : fmtQtyRaw(r.pos.qty) + "주"}</td>
       <td class="n hm">${holdMask ? M : (r.usd ? "$" : "") + fmtP(r.pos.avg)}</td>
       <td class="n hm">${r.price != null ? (r.usd ? "$" : "") + fmtP(r.price) : "—"}</td>
-      <td class="n">${wonT(r.value)}</td>
-      <td class="n ${cls(r.dayPct)}" ${r.a && r.a.asof ? `title="${esc(r.a.asof)} 종가(장중이면 현재가) 기준, 직전 거래일 종가 대비"` : ""}>${r.day != null ? dayCell(r.day, r.dayPct) : r.dayPct != null ? fmtPct(r.dayPct, true) : "—"}</td>
-      <td class="n ${r.pr == null ? "" : r.pr < 0 ? "neg" : "pos"}">${r.pnl != null ? `<span class="pa">${sgnWon(r.pnl)}</span><span class="pp">${fmtPct(r.pr, true)}</span>` : r.pr != null ? fmtPct(r.pr, true) : "—"}</td>
       <td class="n">${ddCell}</td>
       <td class="hm" style="text-align:left">${planCell(r, sym)}</td>
     </tr>`;
@@ -2497,7 +2524,7 @@ function renderHoldings() {
     const due = r.a && r.a.sum ? r.a.sum.due.length : 0;
     return `<button type="button" class="ptag on" data-open="${sym}" title="계획 진행 중 · 눌러서 진행 상황 보기">📌 매수 ${nb}/${nst}${ns ? ` · 매도 ${ns}` : ""}</button>${due ? ` <b class="neg" style="font-size:12px">할 일 ${due}</b>` : ""}`;
   };
-  const group = (title, rs, s) => rs.length ? `<tr class="grp"><td><b>${title}</b> <span class="muted">${rs.length}<span class="hm">종목${all.v && s.v != null ? ` · 비중 ${(s.v / all.v * 100).toFixed(0)}%` : ""}</span></span></td><td class="hm"></td><td class="hm"></td><td class="hm"></td><td class="n"><b>${wonT(s.v)}</b></td><td class="n ${cls(s.d)}">${dayCell(s.d, s.dr, true)}</td><td class="n ${s.p < 0 ? "neg" : "pos"}"><b class="pa">${sgnWon(s.p)}</b>${s.pr != null ? `<span class="pp">${fmtPct(s.pr, true)}</span>` : ""}</td><td></td><td class="hm"></td></tr>` + rs.map(rowHtml).join("") : "";
+  const group = (title, rs, s) => rs.length ? `<tr class="grp"><td><b>${title}</b> <span class="muted">${rs.length}<span class="hm">종목${all.v && s.v != null ? ` · 비중 ${(s.v / all.v * 100).toFixed(0)}%` : ""}</span></span></td><td class="n pl ${cls(s.p)}">${pnlCell(s.p, s.pr)}</td><td class="n"><b>${wonT(s.v)}</b></td><td class="n ${cls(s.d)}">${dayCell(s.d, s.dr, true)}</td><td class="hm"></td><td class="hm"></td><td class="hm"></td><td></td><td class="hm"></td></tr>` + rs.map(rowHtml).join("") : "";
   $("holdBody").innerHTML = group("🇺🇸 미국", rows.filter(r => !r.kr), us) + group("🇰🇷 한국", rows.filter(r => r.kr), kr);
 }
 $("holdMask").addEventListener("click", () => { holdMask = !holdMask; try { localStorage.setItem("bunhal-holdmask", holdMask ? "1" : "0"); } catch (e) {} renderHoldings(); });
