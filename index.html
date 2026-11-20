@@ -52,6 +52,13 @@ h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
 .muted { color: var(--muted); }
 .neg { color: var(--down); }
 .pos { color: var(--up); }
+body.newlist [data-psec], body.newlist #favAdd, body.newlist #favLev { display: none !important; }
+.nl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 10px 0; }
+.nl-kpis > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; }
+.nl-kpis .k { font-size: 12px; color: var(--muted); } .nl-kpis .v { font-family: var(--font-num); font-size: 19px; font-weight: 700; } .nl-kpis .sub { font-size: 12px; color: var(--muted); font-family: var(--font-num); }
+.nl-kpis .sub.pos { color: var(--up); } .nl-kpis .sub.neg { color: var(--down); }
+#nlSpark { width: 100%; height: 120px; display: block; margin-bottom: 8px; }
+.nl-days { width: 100%; max-width: 520px; font-size: 13px; }
 a { color: var(--accent); }
 button, input, select, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -521,7 +528,9 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <div class="status" id="status" role="status"></div>
   </section>
 
-  <section class="panel" aria-labelledby="setH">
+  <section class="panel" id="newPanel" aria-labelledby="newH" hidden></section>
+
+  <section data-psec class="panel" aria-labelledby="setH">
     <h2 id="setH">2. 계획 설정</h2>
     <div class="settings">
       <div class="field"><span class="lbl">시작 방식</span>
@@ -562,7 +571,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="moneyH">
+  <section data-psec class="panel" aria-labelledby="moneyH">
     <h2 id="moneyH">3. 내 투자금</h2>
     <div class="settings">
       <div class="field"><label for="budget">이 종목에 쓸 현금</label><input id="budget" type="number" min="0" step="10000" placeholder="예: 1000000"></div>
@@ -578,13 +587,13 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <p class="note" id="moneyNote" style="margin:0"></p>
   </section>
 
-  <nav class="tabs" role="tablist" aria-label="계획 보기">
+  <nav data-psec class="tabs" role="tablist" aria-label="계획 보기">
     <button type="button" role="tab" id="tab-buy" data-tab="buy" aria-selected="true">매수 계획</button>
     <button type="button" role="tab" id="tab-sell" data-tab="sell" aria-selected="false">매도 계획</button>
     <button type="button" role="tab" id="tab-log" data-tab="log" aria-selected="false">진행 상황<span class="cnt" id="dueCnt" hidden></span></button>
   </nav>
 
-  <section class="card" id="card" aria-labelledby="planTitle" data-pane="buy">
+  <section data-psec class="card" id="card" aria-labelledby="planTitle" data-pane="buy">
     <div class="row" style="justify-content:space-between">
       <span class="badge">분할매수 계획</span>
       <span class="example-flag" id="exampleFlag" hidden>가상 예시 데이터 · 실제 종목 아님</span>
@@ -606,7 +615,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <div class="card-foot"><span id="asof"></span><span>투자 권유가 아닌 참고용 계산입니다.</span></div>
   </section>
 
-  <section class="card" id="sellCard" aria-labelledby="sellTitle" data-pane="sell" hidden>
+  <section data-psec class="card" id="sellCard" aria-labelledby="sellTitle" data-pane="sell" hidden>
     <span class="badge sellb">분할매도 계획</span>
     <h2 id="sellTitle">—</h2>
     <div class="settings">
@@ -631,7 +640,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <div class="totals" id="sellTotals"></div>
   </section>
 
-  <section class="card" id="logCard" aria-labelledby="logTitle" data-pane="log" hidden>
+  <section data-psec class="card" id="logCard" aria-labelledby="logTitle" data-pane="log" hidden>
     <span class="badge">진행 상황</span>
     <h2 id="logTitle">—</h2>
     <div class="poskpis" id="posKpis"></div>
@@ -661,13 +670,13 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     </div>
   </section>
 
-  <section class="panel chart" aria-labelledby="chH">
+  <section data-psec class="panel chart" aria-labelledby="chH">
     <h2 id="chH">최근 3년 가격과 단계선</h2>
     <div id="chart"></div>
     <div class="legend"><span><i></i>종가</span><span><i class="hi"></i>52주 최고가</span><span><i class="st"></i>매수 단계</span></div>
   </section>
 
-  <section class="panel" id="yearPanel" aria-labelledby="yearH">
+  <section data-psec class="panel" id="yearPanel" aria-labelledby="yearH">
     <div class="row" style="justify-content:space-between"><h2 id="yearH">연도별 최대낙폭</h2><span class="note" id="yearNote" style="margin:0"></span></div>
     <div class="ysum" id="yearSum"></div>
     <div class="tablewrap">
@@ -679,7 +688,7 @@ tr.nowrow td { background: var(--soft); border-top: 2px solid var(--ink); border
     <p class="note" style="margin:0;font-size:12px">최대낙폭 = 그해 안에서 고점 대비 가장 크게 빠진 폭 · 연간 수익률 = 그해 첫 거래일 대비 마지막 거래일 · 회복 = 저점 뒤 그 고점을 다시 넘기까지 걸린 거래일 · 평균은 1년치가 다 있는 해만 (상장 첫해·올해 제외) · 수정종가 기준</p>
   </section>
 
-  <section class="panel cyc">
+  <section data-psec class="panel cyc">
     <details id="cycDetails">
       <summary id="cycSummary">과거 하락 사이클 기록</summary>
       <p class="note">사이클 = 종가가 52주 최고가보다 최소 낙폭 이상 떨어진 날 시작해, 그 최고가를 다시 넘은 날 끝납니다(완료). 낙폭은 시작 시점의 52주 최고가 기준이고, '회복'은 이 종료일을 뜻합니다. 상장 첫해는 그때까지의 최고가를 기준으로 합니다.</p>
@@ -1529,7 +1538,37 @@ function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))); co
 
 /* ---------- data loading ---------- */
 function setStatus(msg, err) { const s = $("status"); s.textContent = msg; s.className = "status" + (err ? " err" : ""); }
+// 상장 1년(260거래일) 미만: 단계 계산 없이 있는 자료만 보여줌
+function showNewListing(label, series, ccy) {
+  const usd = ccy === "USD" || (ccy !== "KRW" && !/\.(KS|KQ)\)$/.test(label));
+  const P = v => v == null ? "—" : (usd ? "$" : "") + fmtP(v) + (usd ? "" : "원");
+  const n = series.length, first = series[0], last = series[n - 1], prev = n > 1 ? series[n - 2][1] : null;
+  let hi = first, lo = first; for (const x of series) { if (x[1] > hi[1]) hi = x; if (x[1] < lo[1]) lo = x; }
+  const c = v => v == null ? "" : v < 0 ? "neg" : v > 0 ? "pos" : "";
+  const day = prev ? last[1] / prev - 1 : null, since = last[1] / first[1] - 1, fromHi = last[1] / hi[1] - 1;
+  let spark = "";
+  if (n >= 2) {
+    const W = 600, H = 120, pad = 6, vs = series.map(x => x[1]), mn = Math.min(...vs), mx = Math.max(...vs), rg = mx - mn || 1;
+    const pts = vs.map((v, i) => `${(pad + i / (n - 1) * (W - 2 * pad)).toFixed(1)},${(H - pad - (v - mn) / rg * (H - 2 * pad)).toFixed(1)}`).join(" ");
+    spark = `<svg id="nlSpark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="상장 후 종가 흐름"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="2" vector-effect="non-scaling-stroke" class="${c(since)}"/></svg>`;
+  }
+  const rows = series.slice(-30).map((x, i, a) => { const j = n - a.length + i; const pv = j > 0 ? series[j - 1][1] : null; const r = pv ? x[1] / pv - 1 : null;
+    return `<tr><td>${x[0]}</td><td class="n">${P(x[1])}</td><td class="n ${c(r)}">${r == null ? "상장일" : fmtPct(r, true)}</td></tr>`; }).reverse().join("");
+  $("newPanel").innerHTML = `
+    <div class="row" style="justify-content:space-between"><h2 id="newH" style="margin:0">${esc(label)}</h2><span class="badge">신규 상장 · ${n}거래일</span></div>
+    <div class="nl-kpis">
+      <div><span class="k">현재가 (${last[0]})</span><b class="v">${P(last[1])}</b><span class="sub ${c(day)}">${day == null ? "전일 자료 없음" : "전일 대비 " + fmtPct(day, true)}</span></div>
+      <div><span class="k">상장 후 수익률</span><b class="v ${c(since)}">${fmtPct(since, true)}</b><span class="sub">첫 종가 ${P(first[1])} (${first[0]})</span></div>
+      <div><span class="k">상장 후 최고가 대비</span><b class="v ${c(fromHi)}">${fmtPct(fromHi, true)}</b><span class="sub">최고 ${P(hi[1])} · 최저 ${P(lo[1])}</span></div>
+    </div>
+    ${spark}
+    <table class="nl-days"><thead><tr><th style="text-align:left">날짜</th><th>종가</th><th>전일 대비</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="note">상장한 지 1년(약 260거래일)이 안 돼서 분할매수 단계·매도 계획은 아직 계산하지 않고, 있는 자료만 보여줍니다. 가격은 장중이면 현재가, 장 마감 뒤엔 종가입니다.</p>`;
+  $("newPanel").hidden = false; document.body.classList.add("newlist");
+  setStatus(`${label}: 상장 후 ${n}거래일 자료 (${first[0]} ~ ${last[0]}) · 단계 계산은 1년 뒤부터`);
+}
 function setData(name, series, isExample, remember = true, meta = {}) {
+  if (document.body.classList.contains("newlist")) { document.body.classList.remove("newlist"); $("newPanel").hidden = true; }
   state.name = name; state.series = series; state.isExample = isExample; state.source = meta.source || "";
   state.priceCcy = meta.ccy === "KRW" || meta.ccy === "USD" ? meta.ccy : (isExample ? "USD" : guessCcy(series));
   $("priceCcy").value = state.priceCcy; $("fxF").hidden = state.priceCcy === state.budgetCcy;
@@ -1554,7 +1593,7 @@ function loadText(text, fname) {
 function readFile(f) { const fr = new FileReader(); fr.onload = () => loadText(String(fr.result), f.name); fr.onerror = () => setStatus("파일을 읽지 못했습니다.", true); fr.readAsText(f); }
 
 // 종목 이름은 한국어로 통일: 저장된 한글 이름 → 자주 보는 종목 표 → (국내) 네이버 검색 → 없으면 Yahoo 이름
-const KO_NAMES = { TSLA: "테슬라", HOOD: "로빈후드", PLTR: "팔란티어", NVDA: "엔비디아", MU: "마이크론", AAPL: "애플", MSFT: "마이크로소프트", AMZN: "아마존", META: "메타", GOOGL: "알파벳 A", GOOG: "알파벳 C", AVGO: "브로드컴", TSM: "TSMC", AMD: "AMD", SNDK: "샌디스크", DELL: "델 테크놀로지스", RKLB: "로켓랩", COIN: "코인베이스", MSTR: "스트래티지", NFLX: "넷플릭스", ORCL: "오라클", INTC: "인텔", IONQ: "아이온큐", SOFI: "소파이", UBER: "우버", CRWD: "크라우드스트라이크", ARM: "ARM", ASML: "ASML", QQQ: "인베스코 나스닥100", QQQM: "인베스코 나스닥100 M", SPY: "SPDR S&P500", VOO: "뱅가드 S&P500", SCHD: "슈왑 미국배당", GLD: "SPDR 금", IEF: "아이셰어즈 미국 중기채", TLT: "아이셰어즈 미국 장기채", SOXX: "아이셰어즈 반도체", SMH: "반에크 반도체", QLD: "나스닥100 2배 (ProShares)", TQQQ: "나스닥100 3배 (ProShares)", SOXL: "반도체 3배 (Direxion)" };
+const KO_NAMES = { ANT: "앤트로픽", TSLA: "테슬라", HOOD: "로빈후드", PLTR: "팔란티어", NVDA: "엔비디아", MU: "마이크론", AAPL: "애플", MSFT: "마이크로소프트", AMZN: "아마존", META: "메타", GOOGL: "알파벳 A", GOOG: "알파벳 C", AVGO: "브로드컴", TSM: "TSMC", AMD: "AMD", SNDK: "샌디스크", DELL: "델 테크놀로지스", RKLB: "로켓랩", COIN: "코인베이스", MSTR: "스트래티지", NFLX: "넷플릭스", ORCL: "오라클", INTC: "인텔", IONQ: "아이온큐", SOFI: "소파이", UBER: "우버", CRWD: "크라우드스트라이크", ARM: "ARM", ASML: "ASML", QQQ: "인베스코 나스닥100", QQQM: "인베스코 나스닥100 M", SPY: "SPDR S&P500", VOO: "뱅가드 S&P500", SCHD: "슈왑 미국배당", GLD: "SPDR 금", IEF: "아이셰어즈 미국 중기채", TLT: "아이셰어즈 미국 장기채", SOXX: "아이셰어즈 반도체", SMH: "반에크 반도체", QLD: "나스닥100 2배 (ProShares)", TQQQ: "나스닥100 3배 (ProShares)", SOXL: "반도체 3배 (Direxion)" };
 const hasKo = s => /[가-힣]/.test(String(s || ""));
 function koKnown(short) {
   if (KO_NAMES[short]) return KO_NAMES[short];
@@ -1587,10 +1626,15 @@ async function fetchTicker(sym, displayName) {
     if (!res.ok) throw new Error(j.error || `서버 응답 ${res.status}`);
     const series = j.dates.map((d, i) => [d, j.close[i]]);
     assertDaily(series);
-    if (series.length < 260) throw new Error(`${sym}: 거래일이 ${series.length}일뿐이라 52주 고점을 계산할 수 없습니다.`);
+    if (!series.length) throw new Error(`${sym}: 가격 자료가 아직 없습니다.`);
     const ko = await koNameFor(j.symbol || sym, displayName);
     const nm = ko || displayName || (j.name && j.name !== j.symbol ? j.name : "");
     const label = nm ? `${nm} (${j.symbol})` : j.symbol;
+    if (series.length < 260) {
+      showNewListing(label, series, j.currency); $("ticker").value = sym; updYahoo();
+      try { history.replaceState(null, "", `?t=${encodeURIComponent(sym)}${location.hash}`); } catch (e) {}
+      return;
+    }
     setData(label, series, false, true, { ccy: j.currency, source: j.source });
     setStatus($("status").textContent + ` · 출처 ${j.source}`);
     $("ticker").value = sym; updYahoo();
