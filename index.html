@@ -52,7 +52,7 @@ h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
 .muted { color: var(--muted); }
 .neg { color: var(--down); }
 .pos { color: var(--up); }
-body.newlist [data-psec], body.newlist #favAdd, body.newlist #favLev { display: none !important; }
+body.newlist [data-psec], body.newlist #favLev { display: none !important; }
 .nl-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin: 10px 0; }
 .nl-kpis > div { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 2px; }
 .nl-kpis .k { font-size: 12px; color: var(--muted); } .nl-kpis .v { font-family: var(--font-num); font-size: 19px; font-weight: 700; } .nl-kpis .sub { font-size: 12px; color: var(--muted); font-family: var(--font-num); }
@@ -1565,9 +1565,14 @@ function showNewListing(label, series, ccy) {
     <table class="nl-days"><thead><tr><th style="text-align:left">날짜</th><th>종가</th><th>전일 대비</th></tr></thead><tbody>${rows}</tbody></table>
     <p class="note">상장한 지 1년(약 260거래일)이 안 돼서 분할매수 단계·매도 계획은 아직 계산하지 않고, 있는 자료만 보여줍니다. 가격은 장중이면 현재가, 장 마감 뒤엔 종가입니다.</p>`;
   $("newPanel").hidden = false; document.body.classList.add("newlist");
+  const m = label.match(/\(([^)]+)\)$/); state.nl = { label, sym: m ? m[1] : label, ccy };
+  try { const st = loadStore(); st.sets = st.sets || {}; st.sets[label] = { d: series.map(x => x[0]), c: series.map(x => x[1]), t: Date.now(), ccy: usd ? "USD" : "KRW" };
+    Object.keys(st.sets).sort((a, b) => st.sets[b].t - st.sets[a].t).slice(5).forEach(k => delete st.sets[k]); saveStore(st); renderRecent(); } catch (e) {}
+  renderFavs();
   setStatus(`${label}: 상장 후 ${n}거래일 자료 (${first[0]} ~ ${last[0]}) · 단계 계산은 1년 뒤부터`);
 }
 function setData(name, series, isExample, remember = true, meta = {}) {
+  state.nl = null;
   if (document.body.classList.contains("newlist")) { document.body.classList.remove("newlist"); $("newPanel").hidden = true; }
   state.name = name; state.series = series; state.isExample = isExample; state.source = meta.source || "";
   state.priceCcy = meta.ccy === "KRW" || meta.ccy === "USD" ? meta.ccy : (isExample ? "USD" : guessCcy(series));
@@ -2353,7 +2358,8 @@ let favTab = (() => { try { return localStorage.getItem("bunhal-favtab") || "us"
 function myFavs() { return loadStore().favs || []; }
 function renderFavs() {
   document.querySelectorAll("#favSeg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === favTab)));
-  const cur = tradeKey().replace(/\.(KS|KQ)$/, "");
+  const curKey = state.nl ? state.nl.sym : tradeKey(), curName = state.nl ? state.nl.label : state.name;
+  const cur = curKey.replace(/\.(KS|KQ)$/, "");
   const chip = (sym, label, mine, ysym) => `<span class="fav ${cur === sym ? "on" : ""}"><button type="button" class="favgo" data-sym="${esc(ysym || sym)}" title="${esc(label)}"><b>${esc(label)}</b>${sym.startsWith("^") ? "" : ` <span class="muted">${esc(sym)}</span>`}${ddBadge(ysym || sym)}</button>${mine === "hide" ? `<button type="button" class="favx" data-hide="${esc(sym)}" aria-label="${esc(label)} 숨기기" title="목록에서 숨기기">×</button>` : mine ? `<button type="button" class="favx" data-del="${esc(sym)}" aria-label="${esc(label)} 즐겨찾기에서 빼기">×</button>` : ""}</span>`;
   let html = "";
   if (favTab === "mine") {
@@ -2369,11 +2375,11 @@ function renderFavs() {
   $("favList").innerHTML = html;
   const asof = Object.values(marketDD).filter(x => !x.market || x.market === (favTab === "kr" ? "KR" : "US")).map(x => x.asof).filter(Boolean).sort().pop();
   $("favNote").textContent = favNote[favTab] + (asof ? ` 숫자는 52주 고점 대비 하락폭(${asof} 종가)이고, 빨간 표시는 과거 기준 매수 단계에 들어온 종목이에요.` : "");
-  const canAdd = state.series && !state.isExample;
+  const canAdd = !!state.nl || (state.series && !state.isExample);
   $("favAdd").hidden = !canAdd;
-  $("favLev").hidden = !canAdd || isLeverage(state.name, tradeKey()) || isInverse(state.name);
+  $("favLev").hidden = !canAdd || isLeverage(curName, curKey) || isInverse(curName);
   if (canAdd) {
-    const inMine = myFavs().some(f => f.sym === cur); const lev = isLeverage(state.name, tradeKey());
+    const inMine = myFavs().some(f => f.sym === cur); const lev = isLeverage(curName, curKey);
     $("favAdd").textContent = inMine ? "★ 내 즐겨찾기에 있음" : `☆ ${cur} ${lev ? "레버리지 즐겨찾기에" : "내 즐겨찾기에"} 추가`; $("favAdd").disabled = inMine;
   }
 }
@@ -2396,11 +2402,12 @@ function isLeverage(name, sym) {
   return /레버리지|인버스|곱버스|[23]\s?배|\b[23]x\b|ultra(pro)?\b|leveraged|daily .*(bull|bear) [23]x|\bbull [23]x|\bbear [23]x|2x long|3x long|-1x|-2x|-3x/i.test(String(name || ""));
 }
 function addFav(lev) {
-  const sym = tradeKey().replace(/\.(KS|KQ)$/, ""); const s = loadStore(); s.favs = s.favs || [];
-  if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, ysym: tradeKey(), name: String(state.name).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
+  const key = state.nl ? state.nl.sym : tradeKey(), nm = state.nl ? state.nl.label : state.name;
+  const sym = key.replace(/\.(KS|KQ)$/, ""); const s = loadStore(); s.favs = s.favs || [];
+  if (!s.favs.some(f => f.sym === sym)) s.favs.push({ sym, ysym: key, name: String(nm).replace(/\s*\([^)]*\)$/, "").slice(0, 30), lev: !!lev });
   saveStore(s); favTab = lev ? "lev" : "mine"; renderFavs(); pushPrefs();
 }
-$("favAdd").addEventListener("click", () => addFav(isLeverage(state.name, tradeKey())));
+$("favAdd").addEventListener("click", () => state.nl ? addFav(isLeverage(state.nl.label, state.nl.sym)) : addFav(isLeverage(state.name, tradeKey())));
 /* ---------- add the leveraged version of the current stock/index ---------- */
 // 기초자산 → 레버리지 상품 (Yahoo에서 시세가 받아지는 것만 확인해 넣음)
 const LEV_GROUPS = [
