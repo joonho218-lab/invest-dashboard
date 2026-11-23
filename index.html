@@ -2595,6 +2595,16 @@ $("holdBody").addEventListener("click", (e) => {
 
 /* ---------- boot ---------- */
 // 예전에 영어로 저장된 이름(즐겨찾기·최근 불러온 종목·계획)을 한 번 한국어로 바꿈
+// 2026-11 샌디스크(SNDK) 액면분할: 보유 16주 · 평단 $186.9762로 맞춤 (한 번만)
+(function sndkSplitFix() {
+  const s = loadStore(); s.mig = s.mig || {}; if (s.mig.sndkSplit2611) return;
+  s.trades = s.trades || {}; s.plans = s.plans || {};
+  const old = s.trades.SNDK || [];
+  const date = old.map(t => t.date).filter(Boolean).sort()[0] || "2026-11-09";
+  s.trades.SNDK = [{ id: Date.now(), type: "buy", stage: "", date, price: 186.9762, qty: 16, imported: true, note: "액면분할 반영" }];
+  if (!s.plans.SNDK) { const any = Object.values(s.plans).find(p => p && p.ccy === "USD" && p.settings); s.plans.SNDK = { name: "샌디스크 (SNDK)", ccy: "USD", watch: false, settings: any ? JSON.parse(JSON.stringify(any.settings)) : null, since: null }; }
+  s.plans.SNDK.t = Date.now(); s.plans.SNDK.sig = null; s.mig.sndkSplit2611 = true; saveStore(s);
+})();
 (function koMigrate() {
   const s = loadStore(); let favChanged = false, changed = false;
   const plans = s.plans || {};
